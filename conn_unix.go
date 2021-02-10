@@ -3,6 +3,7 @@
 package nbio
 
 import (
+	"errors"
 	"net"
 	"runtime"
 	"sync"
@@ -210,7 +211,7 @@ func (c *Conn) SetKeepAlive(keepalive bool) error {
 // SetKeepAlivePeriod implements SetKeepAlivePeriod
 func (c *Conn) SetKeepAlivePeriod(d time.Duration) error {
 	if runtime.GOOS != "linux" {
-		returnerrors.New("not supported")
+		return errors.New("not supported")
 	}
 	d += (time.Second - time.Nanosecond)
 	secs := int(d.Seconds())
