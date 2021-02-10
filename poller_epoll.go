@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"runtime"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -142,12 +143,12 @@ func (p *poller) start() {
 				return
 			}
 
-			// if n <= 0 {
-			//	msec = -1
-			//	runtime.Gosched()
-			//	continue
-			// }
-			// msec = 0
+			if n <= 0 {
+				msec = -1
+				runtime.Gosched()
+				continue
+			}
+			msec = 0
 
 			for i := 0; i < n; i++ {
 				err = p.accept(int(events[i].Fd))
@@ -163,12 +164,12 @@ func (p *poller) start() {
 				return
 			}
 
-			// if n <= 0 {
-			//	msec = -1
-			//	runtime.Gosched()
-			//	continue
-			// }
-			// msec = 0
+			if n <= 0 {
+				msec = -1
+				runtime.Gosched()
+				continue
+			}
+			msec = 0
 
 			for i := 0; i < n; i++ {
 				p.readWrite(&events[i])

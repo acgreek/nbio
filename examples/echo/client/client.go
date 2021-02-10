@@ -27,7 +27,7 @@ func main() {
 	defer g.Stop()
 
 	g.OnOpen(func(c *nbio.Conn) {
-		c.SetReadDeadline(time.Now().Add(time.Second * 10))
+		// c.SetReadDeadline(time.Now().Add(time.Second * 10))
 	})
 	g.OnData(func(c *nbio.Conn, data []byte) {
 		atomic.AddInt64(&qps, 1)
@@ -36,7 +36,7 @@ func main() {
 		c.Write(append([]byte(nil), data...))
 	})
 	g.OnClose(func(c *nbio.Conn, err error) {
-		// fmt.Printf("OnClose: %v, %v\n", c.LocalAddr().String(), c.RemoteAddr().String())
+		fmt.Printf("OnClose: %v, %v\n", c.LocalAddr().String(), c.RemoteAddr().String())
 	})
 
 	err := g.Start()
