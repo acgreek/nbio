@@ -80,7 +80,7 @@ func (c *Conn) Write(b []byte) (int, error) {
 		tw := c.g.pollers[c.fd%len(c.g.pollers)].twWrite
 		tw.delete(c, &c.wIndex)
 	} else {
-		c.setReadWrite()
+		c.addWrite()
 	}
 
 	c.mux.Unlock()
@@ -115,7 +115,7 @@ func (c *Conn) Writev(in [][]byte) (int, error) {
 		tw := c.g.pollers[c.fd%len(c.g.pollers)].twWrite
 		tw.delete(c, &c.wIndex)
 	} else {
-		c.setReadWrite()
+		c.addWrite()
 	}
 
 	c.mux.Unlock()
@@ -244,17 +244,19 @@ func (c *Conn) SetSession(session interface{}) bool {
 	return false
 }
 
-func (c *Conn) setRead() {
-	if !c.closed && c.isWAdded {
-		c.isWAdded = false
-		c.g.pollers[c.Hash()%len(c.g.pollers)].setRead(c.fd)
+func (c *Conn) addWrite() {
+	if !c.closed && !c.isWAdded {
+		c.isWAdded = true
+		c.g.pollers[c.Hash()%len(c.g.pollers)].addWrite(c.fd)
 	}
 }
 
-func (c *Conn) setReadWrite() {
-	if !c.closed && !c.isWAdded {
-		c.isWAdded = true
-		c.g.pollers[c.Hash()%len(c.g.pollers)].setReadWrite(c.fd)
+func (c *Conn) resetRead() {
+	if !c.closed && c.isWAdded {
+		c.isWAdded = false
+		p := c.g.pollers[c.Hash()%len(c.g.pollers)]
+		p.deleteEvent(c.fd)
+		p.addRead(c.fd)
 	}
 }
 
@@ -324,11 +326,13 @@ func (c *Conn) flush() error {
 		// if c.wTimer != nil {
 		// 	c.wTimer.Stop()
 		// }
-		tw := c.g.pollers[c.fd%len(c.g.pollers)].twWrite
-		tw.delete(c, &c.wIndex)
-	} else {
-		c.setReadWrite()
+		p := c.g.pollers[c.fd%len(c.g.pollers)]
+		c.resetRead()
+		p.twWrite.delete(c, &c.wIndex)
 	}
+	// else {
+	// c.addWrite()
+	// }
 
 	c.mux.Unlock()
 	return err

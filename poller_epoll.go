@@ -96,7 +96,7 @@ func (p *poller) addConn(c *Conn) error {
 	c.g = p.g
 
 	fd := c.fd
-	err := p.setRead(fd)
+	err := p.addRead(fd)
 	if err == nil {
 		p.g.connsLinux[fd] = c
 		p.increase()
@@ -184,12 +184,16 @@ func (p *poller) start() {
 	}
 }
 
-func (p *poller) setRead(fd int) error {
+func (p *poller) addRead(fd int) error {
 	return syscall.EpollCtl(p.epfd, syscall.EPOLL_CTL_ADD, fd, &syscall.EpollEvent{Fd: int32(fd), Events: syscall.EPOLLRDHUP | syscall.EPOLLIN})
 }
 
-func (p *poller) setReadWrite(fd int) error {
+func (p *poller) addWrite(fd int) error {
 	return syscall.EpollCtl(p.epfd, syscall.EPOLL_CTL_MOD, fd, &syscall.EpollEvent{Fd: int32(fd), Events: syscall.EPOLLRDHUP | syscall.EPOLLIN | syscall.EPOLLOUT})
+}
+
+func (p *poller) deleteEvent(fd int) error {
+	return syscall.EpollCtl(p.epfd, syscall.EPOLL_CTL_DEL, fd, &syscall.EpollEvent{Fd: int32(fd)})
 }
 
 func (p *poller) readWrite(ev *syscall.EpollEvent) {
