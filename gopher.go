@@ -2,7 +2,6 @@ package nbio
 
 import (
 	"fmt"
-	"runtime"
 	"sync"
 	"sync/atomic"
 )
@@ -204,53 +203,4 @@ func (g *Gopher) increase() {
 
 func (g *Gopher) decrease() {
 	atomic.AddInt64(&g.currLoad, -1)
-}
-
-// NewGopher is a factory impl
-func NewGopher(conf Config) *Gopher {
-	cpuNum := uint32(runtime.NumCPU())
-	if conf.MaxLoad == 0 {
-		conf.MaxLoad = DefaultMaxLoad
-	}
-	if len(conf.Addrs) > 0 && conf.NListener == 0 {
-		conf.NListener = 1
-	}
-	if conf.NPoller == 0 {
-		conf.NPoller = cpuNum
-	}
-	if conf.ReadBufferSize == 0 {
-		conf.ReadBufferSize = DefaultReadBufferSize
-	}
-
-	g := &Gopher{
-		network:            conf.Network,
-		addrs:              conf.Addrs,
-		maxLoad:            int64(conf.MaxLoad),
-		listenerNum:        conf.NListener,
-		pollerNum:          conf.NPoller,
-		readBufferSize:     conf.ReadBufferSize,
-		maxWriteBufferSize: conf.MaxWriteBufferSize,
-		listeners:          make([]*poller, conf.NListener),
-		pollers:            make([]*poller, conf.NPoller),
-		conns:              map[*Conn][]byte{},
-		connsLinux:         make([]*Conn, conf.MaxLoad+64),
-		onOpen:             func(c *Conn) {},
-		onClose:            func(c *Conn, err error) {},
-		onData:             func(c *Conn, data []byte) {},
-	}
-
-	if runtime.GOOS != "linux" {
-		g.onMemAlloc = func(c *Conn) []byte {
-			g.mux.Lock()
-			buf, ok := g.conns[c]
-			if !ok {
-				buf = make([]byte, g.readBufferSize)
-				g.conns[c] = buf
-			}
-			g.mux.Unlock()
-			return buf
-		}
-	}
-
-	return g
 }

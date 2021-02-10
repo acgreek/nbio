@@ -1,4 +1,4 @@
-// +build darwin netbsd freebsd openbsd dragonfly windows
+// +build windows
 
 package nbio
 

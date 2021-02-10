@@ -3,10 +3,10 @@ name: build
 on:
   push:
     branches:
-      - timer
+      - kqueue
   pull_request:
     branches:
-      - timer
+      - kqueue
 
 env:
   GO111MODULE: off
@@ -17,8 +17,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go: [1.13.x, 1.14.x, 1.15.x]
-        os: [ubuntu-latest, windows-latest]
+        go: [1.13.x]
+        os: [macos-latest]
     runs-on: ${{ matrix.os}}
     steps:
       - name: install golang
@@ -34,9 +34,4 @@ jobs:
           go env
           echo "::set-output name=short_sha::$(git rev-parse --short HEAD)"
       - name: go test
-        run: go test -timeout 60s -coverprofile="./coverage" 
-      - name: Update Code Coverage
-        uses: codecov/codecov-action@v1.2.1
-        with:
-          file: ./coverage
-          verbose: true
+        run: go test -timeout 30s -coverprofile="./coverage"
