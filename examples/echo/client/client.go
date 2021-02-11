@@ -10,20 +10,20 @@ import (
 )
 
 var (
-	addrs = []string{"localhost:8888", "localhost:9999"}
+	addrs = []string{"localhost:8888", "localhost:8888"}
 )
 
 func main() {
 	var (
 		wg         sync.WaitGroup
 		qps        int64
-		bufsize    = 1024 * 8
+		bufsize    = 64 //1024 * 8
 		clientNum  = 128
 		totalRead  int64
 		totalWrite int64
 	)
 
-	g := nbio.NewGopher(nbio.Config{})
+	g := nbio.NewGopher(nbio.Config{NPoller:1})
 	defer g.Stop()
 
 	g.OnOpen(func(c *nbio.Conn) {

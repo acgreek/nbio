@@ -83,7 +83,7 @@ func (c *Conn) Write(b []byte) (int, error) {
 		// tw := c.g.pollers[c.fd%len(c.g.pollers)].twWrite
 		// tw.delete(c, &c.wIndex)
 	} else {
-		c.addWrite()
+		c.modWrite()
 	}
 
 	c.mux.Unlock()
@@ -118,7 +118,7 @@ func (c *Conn) Writev(in [][]byte) (int, error) {
 		// tw := c.g.pollers[c.fd%len(c.g.pollers)].twWrite
 		// tw.delete(c, &c.wIndex)
 	} else {
-		c.addWrite()
+		c.modWrite()
 	}
 
 	c.mux.Unlock()
@@ -277,10 +277,10 @@ func (c *Conn) SetSession(session interface{}) bool {
 	return false
 }
 
-func (c *Conn) addWrite() {
+func (c *Conn) modWrite() {
 	if !c.closed && !c.isWAdded {
 		c.isWAdded = true
-		c.g.pollers[c.Hash()%len(c.g.pollers)].addWrite(c.fd)
+		c.g.pollers[c.Hash()%len(c.g.pollers)].modWrite(c.fd)
 	}
 }
 
@@ -364,7 +364,7 @@ func (c *Conn) flush() error {
 		// p.twWrite.delete(c, &c.wIndex)
 	}
 	// else {
-	// c.addWrite()
+	// c.modWrite()
 	// }
 
 	c.mux.Unlock()

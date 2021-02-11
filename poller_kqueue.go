@@ -188,7 +188,7 @@ func (p *poller) addRead(fd int) error {
 	return syscall.EpollCtl(p.epfd, syscall.EPOLL_CTL_ADD, fd, &syscall.EpollEvent{Fd: int32(fd), Events: syscall.EPOLLRDHUP | syscall.EPOLLIN})
 }
 
-func (p *poller) addWrite(fd int) error {
+func (p *poller) modWrite(fd int) error {
 	return syscall.EpollCtl(p.epfd, syscall.EPOLL_CTL_MOD, fd, &syscall.EpollEvent{Fd: int32(fd), Events: syscall.EPOLLRDHUP | syscall.EPOLLIN | syscall.EPOLLOUT})
 }
 

@@ -11,6 +11,8 @@ import (
 	"syscall"
 )
 
+const stopFd int = 1
+
 type poller struct {
 	g *Gopher
 
@@ -106,9 +108,8 @@ func (p *poller) addConn(c *Conn) error {
 	return err
 }
 
-func (p *poller) getConn(fd int) (*Conn, bool) {
-	c := p.g.connsLinux[fd]
-	return c, c != nil
+func (p *poller) getConn(fd int) *Conn {
+	return p.g.connsLinux[fd]
 }
 
 func (p *poller) deleteConn(c *Conn) {
@@ -121,7 +122,7 @@ func (p *poller) deleteConn(c *Conn) {
 func (p *poller) stop() {
 	log.Printf("poller[%v] stop...", p.index)
 	p.shutdown = true
-	p.addWrite(1)
+	p.addWrite(stopFd)
 	syscall.Close(p.epfd)
 }
 
@@ -153,7 +154,7 @@ func (p *poller) start() {
 			for i := 0; i < n; i++ {
 				fd = int(events[i].Fd)
 				switch fd {
-				case 0:
+				case stopFd:
 				default:
 					err = p.accept(fd)
 					if err != nil && err != syscall.EAGAIN {
@@ -178,15 +179,6 @@ func (p *poller) start() {
 
 			for i := 0; i < n; i++ {
 				p.readWrite(&events[i])
-			}
-
-			for i := 0; i < n; i++ {
-				fd = int(events[i].Fd)
-				switch fd {
-				case 0:
-				default:
-					p.readWrite(&events[i])
-				}
 			}
 
 			// now := time.Now()
@@ -217,7 +209,8 @@ func (p *poller) deleteEvent(fd int) error {
 
 func (p *poller) readWrite(ev *syscall.EpollEvent) {
 	fd := int(ev.Fd)
-	if c, ok := p.getConn(fd); ok {
+	c := p.getConn(fd)
+	if c != nil {
 		if ev.Events&(syscall.EPOLLERR|syscall.EPOLLHUP|syscall.EPOLLRDHUP) != 0 {
 			c.closeWithError(io.EOF)
 			return
