@@ -3,9 +3,12 @@
 package nbio
 
 import (
+	"container/heap"
 	"log"
 	"runtime"
+	"runtime/debug"
 	"strings"
+	"time"
 )
 
 // Start init and start pollers
@@ -48,6 +51,48 @@ func (g *Gopher) Start() error {
 		go l.start()
 	}
 
+	g.Add(1)
+	go func() {
+		defer g.Done()
+		log.Printf("gopher timer start")
+		defer log.Printf("gopher timer stopped")
+		for {
+			select {
+			case <-g.trigger.C:
+				for {
+					g.tmux.Lock()
+					if g.timers.Len() == 0 {
+						g.tmux.Unlock()
+						break
+					}
+					now := time.Now()
+					it := g.timers[0]
+					if now.After(it.expire) {
+						heap.Pop(&g.timers)
+						g.tmux.Unlock()
+						func() {
+							defer func() {
+								err := recover()
+								if err != nil {
+									log.Printf("timer exec failed: %v", err)
+									debug.PrintStack()
+								}
+							}()
+							it.f()
+						}()
+
+					} else {
+						g.trigger.Reset(it.expire.Sub(now))
+						g.tmux.Unlock()
+						break
+					}
+				}
+			case <-g.chTimer:
+				return
+			}
+		}
+	}()
+
 	if len(g.addrs) == 0 {
 		log.Printf("gopher start")
 	} else {
@@ -87,6 +132,8 @@ func NewGopher(conf Config) *Gopher {
 		onOpen:             func(c *Conn) {},
 		onClose:            func(c *Conn, err error) {},
 		onData:             func(c *Conn, data []byte) {},
+		trigger:            time.NewTimer(timeForever),
+		chTimer:            make(chan struct{}),
 	}
 
 	g.onMemAlloc = func(c *Conn) []byte {

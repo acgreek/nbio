@@ -2,6 +2,7 @@ package nbio
 
 import (
 	"log"
+	"math/rand"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -103,7 +104,7 @@ func TestEcho(t *testing.T) {
 }
 
 func Test10k(t *testing.T) {
-	g := NewGopher(Config{})
+	g := NewGopher(Config{NPoller: 2})
 	err := g.Start()
 	if err != nil {
 		log.Fatalf("Start failed: %v\n", err)
@@ -146,7 +147,9 @@ func Test10k(t *testing.T) {
 		}
 	}()
 
+	log.Println("== Test10k before done 111")
 	<-done
+	log.Println("== Test10k before done 222")
 }
 
 func TestTimeout(t *testing.T) {
@@ -182,6 +185,112 @@ func TestTimeout(t *testing.T) {
 	one()
 
 	<-done
+}
+
+func TestHeapTimer(t *testing.T) {
+	g := NewGopher(Config{})
+	g.Start()
+	defer g.Stop()
+
+	timeout := time.Second / 20
+
+	g.afterFunc(timeout, func() {
+		panic("test")
+	})
+
+	t1 := time.Now()
+	ch1 := make(chan int)
+	g.afterFunc(timeout, func() {
+		close(ch1)
+	})
+	<-ch1
+	to1 := time.Since(t1)
+	if to1 < timeout-timeout/10 || to1 > timeout+timeout/10 {
+		log.Fatalf("invalid to1: %v", to1)
+	}
+
+	t2 := time.Now()
+	ch2 := make(chan int)
+	it2 := g.afterFunc(timeout, func() {
+		close(ch2)
+	})
+	it2.Reset(timeout * 2)
+	<-ch2
+	to2 := time.Since(t2)
+	if to2 < timeout*2-timeout/10 || to2 > timeout*2+timeout/10 {
+		log.Fatalf("invalid to2: %v", to2)
+	}
+
+	ch3 := make(chan int)
+	it3 := g.afterFunc(timeout, func() {
+		close(ch3)
+	})
+	it3.Stop()
+	<-time.After(timeout + timeout/10)
+	select {
+	case <-ch3:
+		log.Fatalf("stop failed")
+	default:
+	}
+
+	ch4 := make(chan int, 5)
+	for i := 0; i < 5; i++ {
+		n := i + 1
+		if n == 3 {
+			n = 5
+		} else if n == 5 {
+			n = 3
+		}
+
+		g.afterFunc(timeout*time.Duration(n), func() {
+			ch4 <- n
+		})
+	}
+	for i := 0; i < 5; i++ {
+		n := <-ch4
+		if n != i+1 {
+			log.Fatalf("invalid n: %v, %v", i, n)
+		}
+	}
+
+	its := make([]*htimer, 100)[0:0]
+	ch5 := make(chan int, 100)
+	for i := 0; i < 100; i++ {
+		n := 500 + rand.Int()%200
+		to := time.Duration(n) * time.Second / 1000
+		its = append(its, g.afterFunc(to, func() {
+			ch5 <- n
+		}))
+	}
+	if len(its) != 100 || g.timers.Len() != 100 {
+		log.Fatalf("invalid timers length: %v, %v", len(its), g.timers.Len())
+	}
+	for i := 0; i < 50; i++ {
+		if its[0] == nil {
+			log.Fatalf("invalid its[0]")
+		}
+		its[0].Stop()
+		its = its[1:]
+	}
+	if len(its) != 50 || g.timers.Len() != 50 {
+		log.Fatalf("invalid timers length: %v, %v", len(its), g.timers.Len())
+	}
+	recved := 0
+LOOP_RECV:
+	for {
+		select {
+		case <-ch5:
+			recved++
+		case <-time.After(time.Second):
+			break LOOP_RECV
+		}
+	}
+	if recved != 50 {
+		log.Fatalf("invalid recved num: %v", recved)
+	}
+
+	it := &htimer{parent: g, index: -1}
+	it.Stop()
 }
 
 func TestFuzz(t *testing.T) {

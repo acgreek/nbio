@@ -7,10 +7,8 @@ import (
 	"io"
 	"log"
 	"net"
-	"runtime"
 	"sync/atomic"
 	"syscall"
-	"time"
 )
 
 type poller struct {
@@ -123,6 +121,7 @@ func (p *poller) deleteConn(c *Conn) {
 func (p *poller) stop() {
 	log.Printf("poller[%v] stop...", p.index)
 	p.shutdown = true
+	p.addWrite(1)
 	syscall.Close(p.epfd)
 }
 
@@ -133,8 +132,9 @@ func (p *poller) start() {
 	defer log.Printf("%v[%v] stopped", p.pollType, p.index)
 	p.shutdown = false
 
-	twout := 0
-	msec := int(interval.Milliseconds())
+	// twout := 0
+	fd := 0
+	msec := -1 //int(interval.Milliseconds())
 	events := make([]syscall.EpollEvent, 1024)
 	if p.isListener {
 		for !p.shutdown {
@@ -145,15 +145,20 @@ func (p *poller) start() {
 
 			if n <= 0 {
 				msec = -1
-				runtime.Gosched()
+				// runtime.Gosched()
 				continue
 			}
-			msec = 0
+			msec = 20
 
 			for i := 0; i < n; i++ {
-				err = p.accept(int(events[i].Fd))
-				if err != nil && err != syscall.EAGAIN {
-					return
+				fd = int(events[i].Fd)
+				switch fd {
+				case 0:
+				default:
+					err = p.accept(fd)
+					if err != nil && err != syscall.EAGAIN {
+						return
+					}
 				}
 			}
 		}
@@ -166,21 +171,30 @@ func (p *poller) start() {
 
 			if n <= 0 {
 				msec = -1
-				runtime.Gosched()
+				// runtime.Gosched()
 				continue
 			}
-			msec = 0
+			msec = 20
 
 			for i := 0; i < n; i++ {
 				p.readWrite(&events[i])
 			}
 
-			now := time.Now()
-			msec = p.twRead.check(now)
-			twout = p.twWrite.check(now)
-			if twout < msec {
-				msec = twout
+			for i := 0; i < n; i++ {
+				fd = int(events[i].Fd)
+				switch fd {
+				case 0:
+				default:
+					p.readWrite(&events[i])
+				}
 			}
+
+			// now := time.Now()
+			// msec = p.twRead.check(now)
+			// twout = p.twWrite.check(now)
+			// if twout < msec {
+			// 	msec = twout
+			// }
 		}
 	}
 }
@@ -190,6 +204,10 @@ func (p *poller) addRead(fd int) error {
 }
 
 func (p *poller) addWrite(fd int) error {
+	return syscall.EpollCtl(p.epfd, syscall.EPOLL_CTL_ADD, fd, &syscall.EpollEvent{Fd: int32(fd), Events: syscall.EPOLLRDHUP | syscall.EPOLLOUT})
+}
+
+func (p *poller) modWrite(fd int) error {
 	return syscall.EpollCtl(p.epfd, syscall.EPOLL_CTL_MOD, fd, &syscall.EpollEvent{Fd: int32(fd), Events: syscall.EPOLLRDHUP | syscall.EPOLLIN | syscall.EPOLLOUT})
 }
 
@@ -246,8 +264,8 @@ func newPoller(g *Gopher, isListener bool, index int) (*poller, error) {
 
 	p := &poller{
 		g:          g,
-		index:      index,
 		epfd:       fd,
+		index:      index,
 		isListener: isListener,
 	}
 
