@@ -194,9 +194,7 @@ func (p *poller) start() {
 	defer syscall.Close(p.kfd)
 	p.shutdown = false
 
-	// twout := 0
 	fd := 0
-	msec := -1 //int(interval.Milliseconds())
 	events := make([]syscall.Kevent_t, 1024)
 	changes := []syscall.Kevent_t{}
 	if p.isListener {
@@ -205,13 +203,6 @@ func (p *poller) start() {
 			if err != nil && err != syscall.EINTR {
 				return
 			}
-
-			if n <= 0 {
-				msec = -1
-				// runtime.Gosched()
-				continue
-			}
-			msec = 20
 
 			for i := 0; i < n; i++ {
 				fd = int(events[i].Ident)
@@ -231,13 +222,6 @@ func (p *poller) start() {
 			if err != nil && err != syscall.EINTR {
 				return
 			}
-
-			if n <= 0 {
-				msec = -1
-				// runtime.Gosched()
-				continue
-			}
-			msec = 20
 
 			for i := 0; i < n; i++ {
 				fd = int(events[i].Ident)
