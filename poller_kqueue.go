@@ -191,10 +191,7 @@ func (p *poller) start() {
 
 	log.Printf("%v[%v] start", p.pollType, p.index)
 	defer log.Printf("%v[%v] stopped", p.pollType, p.index)
-	defer func() {
-		syscall.Close(p.kfd)
-		syscall.Close(p.evtfd)
-	}()
+	defer syscall.Close(p.kfd)
 	p.shutdown = false
 
 	// twout := 0
@@ -230,7 +227,7 @@ func (p *poller) start() {
 		}
 	} else {
 		for !p.shutdown {
-			n, err := syscall.Kevent(p.fd, changes, events, nil)
+			n, err := syscall.Kevent(p.kfd, changes, events, nil)
 			if err != nil && err != syscall.EINTR {
 				return
 			}
@@ -268,7 +265,6 @@ func newPoller(g *Gopher, isListener bool, index int) (*poller, error) {
 
 	if err != nil {
 		syscall.Close(fd)
-		syscall.Close(int(r0))
 		return nil, err
 	}
 
@@ -279,7 +275,7 @@ func newPoller(g *Gopher, isListener bool, index int) (*poller, error) {
 					{Ident: uint64(lfd), Flags: syscall.EV_ADD, Filter: syscall.EVFILT_READ},
 				}, nil, nil)
 				if err != nil {
-					return err
+					return nil, err
 				}
 			}
 		} else {
@@ -290,7 +286,6 @@ func newPoller(g *Gopher, isListener bool, index int) (*poller, error) {
 	p := &poller{
 		g:          g,
 		kfd:        fd,
-		evtfd:      int(r0),
 		index:      index,
 		isListener: isListener,
 	}
