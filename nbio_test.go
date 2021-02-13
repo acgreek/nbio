@@ -138,7 +138,7 @@ func Test10k(t *testing.T) {
 	}
 	go func() {
 		for i := 0; i < int(clientNum); i++ {
-			if runtime.GOOS != "windows" {
+			if runtime.GOOS == "linux" {
 				one()
 			} else {
 				go one()
@@ -147,9 +147,7 @@ func Test10k(t *testing.T) {
 		}
 	}()
 
-	log.Println("== Test10k before done 111")
 	<-done
-	log.Println("== Test10k before done 222")
 }
 
 func TestTimeout(t *testing.T) {
@@ -196,12 +194,12 @@ func TestHeapTimer(t *testing.T) {
 
 	t1 := time.Now()
 	ch1 := make(chan int)
-	g.afterFunc(timeout*5, func() {
+	g.afterFunc(timeout, func() {
 		close(ch1)
 	})
 	<-ch1
 	to1 := time.Since(t1)
-	if to1 < timeout*4 || to1 > timeout*6 {
+	if to1 < timeout-timeout/5 || to1 > timeout+timeout/5 {
 		log.Fatalf("invalid to1: %v", to1)
 	}
 
@@ -295,37 +293,67 @@ LOOP_RECV:
 }
 
 func TestFuzz(t *testing.T) {
+	maxLoad := gopher.maxLoad
 	gopher.maxLoad = 10
 	wg := sync.WaitGroup{}
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
-		go func() {
+		go func(idx int) {
 			defer wg.Done()
-			Dial("tcp4", addr)
-		}()
-	}
-	c, err := Dial("tcp6", addr)
-	if err == nil {
-		log.Printf("Dial tcp6: %v, %v, %v", c.LocalAddr(), c.RemoteAddr(), err)
-		gopher.AddConn(c)
-		c.SetWriteDeadline(time.Now().Add(time.Second))
-		c.Write([]byte{1})
-		c.Close()
-		c.Write([]byte{1})
-		bs := [][]byte{}
-		bs = append(bs, []byte{1})
-		c.Writev(bs)
-	} else {
-		log.Printf("Dial tcp6: %v", err)
+			if idx%2 == 0 {
+				Dial("tcp4", addr)
+			} else {
+				Dial("tcp6", addr)
+			}
+		}(i)
 	}
 
-	g := NewGopher(Config{
+	wg.Wait()
+
+	readed := 0
+	wg2 := sync.WaitGroup{}
+	wg2.Add(1)
+	g := NewGopher(Config{NPoller: 1})
+	g.OnData(func(c *Conn, data []byte) {
+		readed += len(data)
+		if readed == 4 {
+			wg2.Done()
+		}
+	})
+	err := g.Start()
+	if err != nil {
+		log.Fatalf("Start failed: %v", err)
+	}
+
+	gopher.maxLoad = maxLoad
+	c, err := Dial("tcp", addr)
+	if err == nil {
+		log.Printf("Dial tcp6: %v, %v, %v", c.LocalAddr(), c.RemoteAddr(), err)
+		g.AddConn(c)
+		c.SetWriteDeadline(time.Now().Add(time.Second))
+		c.Write([]byte{1})
+
+		time.Sleep(time.Second / 10)
+
+		bs := [][]byte{}
+		bs = append(bs, []byte{2})
+		bs = append(bs, []byte{3})
+		bs = append(bs, []byte{4})
+		c.Writev(bs)
+
+		time.Sleep(time.Second / 10)
+
+		c.Close()
+		c.Write([]byte{1})
+	} else {
+		log.Fatalf("Dial tcp6: %v", err)
+	}
+
+	gErr := NewGopher(Config{
 		Network: "tcp4",
 		Addrs:   []string{"localhost:8889", "localhost:8889"},
 	})
-	g.Start()
-
-	wg.Wait()
+	gErr.Start()
 }
 
 func TestStop(t *testing.T) {
