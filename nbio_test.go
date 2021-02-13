@@ -115,7 +115,7 @@ func Test10k(t *testing.T) {
 	var clientNum int64 = 1024 * 10
 	var done = make(chan int)
 
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS != "linux" {
 		clientNum = 100
 	}
 
@@ -142,7 +142,6 @@ func Test10k(t *testing.T) {
 				one()
 			} else {
 				go one()
-				// 	time.Sleep(time.Second / 1000)
 			}
 		}
 	}()
