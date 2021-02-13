@@ -3,7 +3,6 @@
 package nbio
 
 import (
-	"io"
 	"log"
 	"sync/atomic"
 	"syscall"
@@ -154,11 +153,11 @@ func (p *poller) readWrite(ev *syscall.Kevent_t) {
 	fd := int(ev.Ident)
 	c := p.getConn(fd)
 	if c != nil {
-		if ((uint32(ev.Filter) & uint32(syscall.EV_ERROR)) != 0) || ((uint32(ev.Filter) & uint32(syscall.EV_EOF)) != 0) {
-			log.Printf("+++++ readWrite 111 xx: event error")
-			c.closeWithError(io.EOF)
-			return
-		}
+		// if ((uint32(ev.Filter) & uint32(syscall.EV_ERROR)) != 0) || ((uint32(ev.Filter) & uint32(syscall.EV_EOF)) != 0) {
+		// 	log.Printf("+++++ readWrite 111 xx: event error")
+		// 	c.closeWithError(io.EOF)
+		// 	return
+		// }
 
 		if ev.Filter&syscall.EVFILT_READ != 0 {
 			buffer := p.g.borrow(c)
