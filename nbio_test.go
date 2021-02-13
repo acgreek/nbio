@@ -86,15 +86,9 @@ func TestEcho(t *testing.T) {
 		}
 		g.AddConn(c)
 		if n%2 == 0 {
-			n, err := c.Write(make([]byte, msgSize))
-			if err != nil {
-				log.Fatalf("Write failed: %v, %v", n, err)
-			}
+			c.Write(make([]byte, msgSize))
 		} else {
-			n, err := c.Writev([][]byte{make([]byte, msgSize)})
-			if err != nil {
-				log.Fatalf("Write failed: %v, %v", n, err)
-			}
+			c.Writev([][]byte{make([]byte, msgSize)})
 		}
 	}
 
@@ -144,7 +138,7 @@ func Test10k(t *testing.T) {
 	}
 	go func() {
 		for i := 0; i < int(clientNum); i++ {
-			if runtime.GOOS == "linux" {
+			if runtime.GOOS != "windows" {
 				one()
 			} else {
 				go one()

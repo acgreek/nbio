@@ -4,7 +4,6 @@ package nbio
 
 import (
 	"errors"
-	"log"
 	"net"
 	"syscall"
 )
@@ -106,20 +105,17 @@ func listen(network, address string, backlogNum int64) (int, error) {
 	)
 
 	if sockaddr, soType, err = getSockaddr(network, address); err != nil {
-		log.Printf("----- getSockaddr failed 111: %v, %v, %v", network, address, err)
 		return -1, err
 	}
 
 	syscall.ForkLock.RLock()
 	defer syscall.ForkLock.RUnlock()
 	if fd, err = syscall.Socket(soType, syscall.SOCK_STREAM, syscall.IPPROTO_TCP); err != nil {
-		log.Printf("----- getSockaddr failed 222: %v, %v, %v", network, address, err)
 		return -1, err
 	}
 
 	if err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1); err != nil {
 		syscall.Close(fd)
-		log.Printf("----- getSockaddr failed 333: %v, %v, %v", network, address, err)
 		return -1, err
 	}
 
@@ -128,14 +124,12 @@ func listen(network, address string, backlogNum int64) (int, error) {
 		socketOptReusePort = 0x200
 		if err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, socketOptReusePort, 1); err != nil {
 			syscall.Close(fd)
-			log.Printf("----- getSockaddr failed 444: %v, %v, %v", network, address, err)
 			return -1, err
 		}
 	}
 
 	if err = syscall.Bind(fd, sockaddr); err != nil {
 		syscall.Close(fd)
-		log.Printf("----- getSockaddr failed 555: %v, %v, %v", network, address, err)
 		return -1, err
 	}
 
@@ -144,13 +138,11 @@ func listen(network, address string, backlogNum int64) (int, error) {
 		n = syscall.SOMAXCONN
 	}
 	if err = syscall.Listen(fd, n); err != nil {
-		log.Printf("----- getSockaddr failed 666: %v, %v, %v", network, address, err)
 		syscall.Close(fd)
 		return -1, err
 	}
 
 	if err = syscall.SetNonblock(fd, true); err != nil {
-		log.Printf("----- getSockaddr failed 777: %v, %v, %v", network, address, err)
 		syscall.Close(fd)
 		return -1, err
 	}

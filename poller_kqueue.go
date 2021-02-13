@@ -100,15 +100,6 @@ func (p *poller) addConn(c *Conn) {
 	p.addRead(fd)
 	p.g.connsLinux[fd] = c
 	p.increase()
-
-	// fd := c.fd
-	// err := p.addRead(fd)
-	// if err == nil {
-	// p.g.connsLinux[fd] = c
-	// p.increase()
-	// }
-
-	// return err
 }
 
 func (p *poller) getConn(fd int) *Conn {
@@ -127,7 +118,6 @@ func (p *poller) trigger() {
 }
 
 func (p *poller) addRead(fd int) {
-	log.Printf("----- addRead 111: %v", fd)
 	p.mux.Lock()
 	p.eventList = append(p.eventList, syscall.Kevent_t{Ident: uint64(fd), Flags: syscall.EV_ADD, Filter: syscall.EVFILT_READ})
 	p.mux.Unlock()
@@ -147,7 +137,6 @@ func (p *poller) addRead(fd int) {
 // }
 
 func (p *poller) modWrite(fd int) {
-	log.Printf("----- modWrite 111: %v", fd)
 	p.mux.Lock()
 	p.eventList = append(p.eventList, syscall.Kevent_t{Ident: uint64(fd), Flags: syscall.EV_ADD, Filter: syscall.EVFILT_WRITE})
 	p.mux.Unlock()
@@ -160,7 +149,6 @@ func (p *poller) modWrite(fd int) {
 }
 
 func (p *poller) deleteWrite(fd int) {
-	log.Printf("----- deleteWrite 111: %v", fd)
 	p.mux.Lock()
 	p.eventList = append(p.eventList, syscall.Kevent_t{Ident: uint64(fd), Flags: syscall.EV_DELETE, Filter: syscall.EVFILT_WRITE})
 	p.mux.Unlock()
@@ -175,18 +163,10 @@ func (p *poller) deleteWrite(fd int) {
 func (p *poller) readWrite(ev *syscall.Kevent_t) {
 	fd := int(ev.Ident)
 	c := p.getConn(fd)
-	log.Printf("+++++ readWrite 111 xx: %v, %v, %v", fd, c == nil, ev.Filter)
 	if c != nil {
-		// if ((uint32(ev.Filter) & uint32(syscall.EV_ERROR)) != 0) || ((uint32(ev.Filter) & uint32(syscall.EV_EOF)) != 0) {
-		// 	log.Printf("+++++ readWrite 111 xx: event error")
-		// 	c.closeWithError(io.EOF)
-		// 	return
-		// }
-
 		if ev.Filter&syscall.EVFILT_READ != 0 {
 			buffer := p.g.borrow(c)
 			n, err := c.Read(buffer)
-			log.Printf("+++++ readWrite 222 xx: event read")
 			if err == nil {
 				p.g.onData(c, buffer[:n])
 			} else {
@@ -199,10 +179,8 @@ func (p *poller) readWrite(ev *syscall.Kevent_t) {
 		}
 
 		if ev.Filter&syscall.EVFILT_WRITE != 0 {
-			log.Printf("+++++ readWrite 333 xx: write")
 			c.flush()
 		}
-		log.Printf("+++++ readWrite 444 xx: event")
 	}
 }
 
@@ -225,8 +203,6 @@ func (p *poller) start() {
 	var changes []syscall.Kevent_t = nil
 	if p.isListener {
 		for !p.shutdown {
-			log.Println("----- loop")
-
 			n, err := syscall.Kevent(p.kfd, changes, events, nil)
 			if err != nil && err != syscall.EINTR {
 				return
@@ -238,7 +214,6 @@ func (p *poller) start() {
 				case p.evtfd:
 				default:
 					err = p.accept(fd)
-					log.Printf("+++++ accept: %v", err)
 					if err != nil && err != syscall.EAGAIN {
 						return
 					}
@@ -252,13 +227,10 @@ func (p *poller) start() {
 			changes = p.eventList
 			p.eventList = nil
 			p.mux.Unlock()
-			log.Println("----- loop 111:", len(changes))
 			n, err := syscall.Kevent(p.kfd, changes, events, nil)
 			if err != nil && err != syscall.EINTR {
 				return
 			}
-
-			log.Println(".......... loop 222:", n, err)
 
 			for i := 0; i < n; i++ {
 				fd = int(events[i].Ident)
