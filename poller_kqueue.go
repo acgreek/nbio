@@ -123,6 +123,7 @@ func (p *poller) trigger() {
 }
 
 func (p *poller) addRead(fd int) {
+	log.Printf("----- addRead 111: %v", fd)
 	p.mux.Lock()
 	p.eventList = append(p.eventList, syscall.Kevent_t{Ident: uint64(fd), Flags: syscall.EV_ADD, Filter: syscall.EVFILT_READ})
 	p.mux.Unlock()
@@ -142,6 +143,7 @@ func (p *poller) addRead(fd int) {
 // }
 
 func (p *poller) modWrite(fd int) {
+	log.Printf("----- modWrite 111: %v", fd)
 	p.mux.Lock()
 	p.eventList = append(p.eventList, syscall.Kevent_t{Ident: uint64(fd), Flags: syscall.EV_ADD, Filter: syscall.EVFILT_WRITE})
 	p.mux.Unlock()
@@ -154,6 +156,7 @@ func (p *poller) modWrite(fd int) {
 }
 
 func (p *poller) deleteWrite(fd int) {
+	log.Printf("----- deleteWrite 111: %v", fd)
 	p.mux.Lock()
 	p.eventList = append(p.eventList, syscall.Kevent_t{Ident: uint64(fd), Flags: syscall.EV_DELETE, Filter: syscall.EVFILT_WRITE})
 	p.mux.Unlock()
@@ -168,6 +171,7 @@ func (p *poller) deleteWrite(fd int) {
 func (p *poller) readWrite(ev *syscall.Kevent_t) {
 	fd := int(ev.Ident)
 	c := p.getConn(fd)
+	log.Printf("+++++ readWrite 111 xx: %v, %v, %v", fd, c == nil, ev.Filter)
 	if c != nil {
 		// if ((uint32(ev.Filter) & uint32(syscall.EV_ERROR)) != 0) || ((uint32(ev.Filter) & uint32(syscall.EV_EOF)) != 0) {
 		// 	log.Printf("+++++ readWrite 111 xx: event error")
@@ -224,14 +228,6 @@ func (p *poller) start() {
 				return
 			}
 
-			p.mux.Lock()
-			syscall.Kevent(p.kfd, p.eventList, nil, nil)
-			if err != nil && err != syscall.EINTR {
-				return
-			}
-			p.eventList = p.eventList[0:0]
-			p.mux.Unlock()
-
 			for i := 0; i < n; i++ {
 				fd = int(events[i].Ident)
 				switch fd {
@@ -252,6 +248,17 @@ func (p *poller) start() {
 			if err != nil && err != syscall.EINTR {
 				return
 			}
+
+			log.Println(".......... loop add events 111")
+			p.mux.Lock()
+			if len(p.eventList) > 0 {
+				log.Println(".......... loop add events 222:", len(p.eventList))
+				n2, err2 := syscall.Kevent(p.kfd, p.eventList, nil, nil)
+				log.Println(".......... loop add events 333:", n2, err2)
+				p.eventList = p.eventList[0:0]
+			}
+			p.mux.Unlock()
+			log.Println(".......... loop add events 444")
 
 			for i := 0; i < n; i++ {
 				fd = int(events[i].Ident)
