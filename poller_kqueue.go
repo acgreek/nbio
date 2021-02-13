@@ -156,6 +156,7 @@ func (p *poller) readWrite(ev *syscall.Kevent_t) {
 	if c != nil {
 		// EVFilterSock = -0xd
 		if ev.Filter&(-0xd) != 0 {
+			log.Printf("+++++ readWrite 111: event error")
 			c.closeWithError(io.EOF)
 			return
 		}
@@ -163,6 +164,7 @@ func (p *poller) readWrite(ev *syscall.Kevent_t) {
 		if ev.Filter&syscall.EVFILT_READ != 0 {
 			buffer := p.g.borrow(c)
 			n, err := c.Read(buffer)
+			log.Printf("+++++ readWrite 222: event error")
 			if err == nil {
 				p.g.onData(c, buffer[:n])
 			} else {
@@ -175,8 +177,10 @@ func (p *poller) readWrite(ev *syscall.Kevent_t) {
 		}
 
 		if ev.Filter&syscall.EVFILT_WRITE != 0 {
+			log.Printf("+++++ readWrite 333: event error")
 			c.flush()
 		}
+		log.Printf("+++++ readWrite 444: event error")
 	}
 }
 
@@ -231,7 +235,6 @@ func (p *poller) start() {
 				switch fd {
 				case p.evtfd:
 				default:
-					log.Printf("+++++ readWrite: %v", err)
 					p.readWrite(&events[i])
 				}
 			}
