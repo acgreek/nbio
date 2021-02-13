@@ -21,6 +21,7 @@ func (g *Gopher) Start() error {
 	for _, addr := range g.addrs {
 		fd, err := listen(g.network, addr, g.maxLoad)
 		if err != nil {
+			log.Printf("----- gopher Start err 111: %v", err)
 			return err
 		}
 
@@ -34,6 +35,7 @@ func (g *Gopher) Start() error {
 				syscall.Close(g.lfds[j])
 				g.listeners[j].stop()
 			}
+			log.Printf("----- gopher Start err 222: %v", err)
 			return err
 		}
 	}
@@ -49,6 +51,7 @@ func (g *Gopher) Start() error {
 			for j := 0; j < int(i); j++ {
 				g.pollers[j].stop()
 			}
+			log.Printf("----- gopher Start err 333: %v", err)
 			return err
 		}
 	}
