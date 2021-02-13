@@ -86,9 +86,15 @@ func TestEcho(t *testing.T) {
 		}
 		g.AddConn(c)
 		if n%2 == 0 {
-			c.Write(make([]byte, msgSize))
+			n, err := c.Write(make([]byte, msgSize))
+			if err != nil {
+				log.Fatalf("Write failed: %v, %v", n, err)
+			}
 		} else {
-			c.Writev([][]byte{make([]byte, msgSize)})
+			n, err := c.Writev([][]byte{make([]byte, msgSize)})
+			if err != nil {
+				log.Fatalf("Write failed: %v, %v", n, err)
+			}
 		}
 	}
 
