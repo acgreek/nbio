@@ -123,12 +123,19 @@ func listen(network, address string, backlogNum int64) (int, error) {
 		return -1, err
 	}
 
-	// socketOptReusePort := 0x0F
-	// if err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, socketOptReusePort, 1); err != nil {
-	// 	syscall.Close(fd)
-	// 	log.Printf("----- getSockaddr failed 444: %v, %v, %v", network, address, err)
-	// 	return -1, err
-	// }
+	unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)); err != nil {
+		return
+	}
+
+	socketOptReusePort := 0x0F
+	if err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, socketOptReusePort, 1); err != nil {
+		socketOptReusePort = 0x200
+		if err = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, socketOptReusePort, 1); err != nil {
+			syscall.Close(fd)
+			log.Printf("----- getSockaddr failed 444: %v, %v, %v", network, address, err)
+			return -1, err
+		}
+	}
 
 	if err = syscall.Bind(fd, sockaddr); err != nil {
 		syscall.Close(fd)
