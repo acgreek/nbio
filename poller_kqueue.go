@@ -154,7 +154,7 @@ func (p *poller) readWrite(ev *syscall.Kevent_t) {
 	fd := int(ev.Ident)
 	c := p.getConn(fd)
 	if c != nil {
-		if ev.Filter&(syscal.EV_ERROR|syscal.EV_EOF) != 0 {
+		if ev.Filter&(syscall.EV_ERROR|syscall.EV_EOF) != 0 {
 			log.Printf("+++++ readWrite 111: event error")
 			c.closeWithError(io.EOF)
 			return
