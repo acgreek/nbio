@@ -4,11 +4,14 @@ package nbio
 
 import (
 	"log"
+	"sync"
 	"sync/atomic"
 	"syscall"
 )
 
 type poller struct {
+	mux sync.Mutex
+
 	g *Gopher
 
 	kfd   int
@@ -25,6 +28,8 @@ type poller struct {
 	readBuffer []byte
 
 	pollType string
+
+	eventList []syscall.Kevent_t
 }
 
 func (p *poller) online() int64 {
@@ -120,10 +125,16 @@ func (p *poller) trigger() {
 	}}, nil, nil)
 }
 
-func (p *poller) addRead(fd int) error {
-	_, err := syscall.Kevent(p.kfd, []syscall.Kevent_t{
+func (p *poller) addRead(fd int) {
+	p.mux.Lock()
+	p.eventList = append(p.eventList, syscall.Kevent_t{
 		{Ident: uint64(fd), Flags: syscall.EV_ADD, Filter: syscall.EVFILT_READ},
-	}, nil, nil)
+	})
+	p.mux.Unlock()
+	p.trigger()
+	// _, err := syscall.Kevent(p.kfd, []syscall.Kevent_t{
+	// 	{Ident: uint64(fd), Flags: syscall.EV_ADD, Filter: syscall.EVFILT_READ},
+	// }, nil, nil)
 	return err
 }
 
@@ -135,17 +146,31 @@ func (p *poller) addRead(fd int) error {
 // 	return os.NewSyscallError("kevent add", err)
 // }
 
-func (p *poller) modWrite(fd int) error {
-	_, err := syscall.Kevent(p.kfd, []syscall.Kevent_t{
+func (p *poller) modWrite(fd int) {
+	p.mux.Lock()
+	p.eventList = append(p.eventList, syscall.Kevent_t{
 		{Ident: uint64(fd), Flags: syscall.EV_ADD, Filter: syscall.EVFILT_WRITE},
-	}, nil, nil)
+	})
+	p.mux.Unlock()
+	p.trigger()
+
+	// _, err := syscall.Kevent(p.kfd, []syscall.Kevent_t{
+	// 	{Ident: uint64(fd), Flags: syscall.EV_ADD, Filter: syscall.EVFILT_WRITE},
+	// }, nil, nil)
 	return err
 }
 
-func (p *poller) deleteWrite(fd int) error {
-	_, err := syscall.Kevent(p.kfd, []syscall.Kevent_t{
+func (p *poller) deleteWrite(fd int) {
+	p.mux.Lock()
+	p.eventList = append(p.eventList, syscall.Kevent_t{
 		{Ident: uint64(fd), Flags: syscall.EV_DELETE, Filter: syscall.EVFILT_WRITE},
-	}, nil, nil)
+	})
+	p.mux.Unlock()
+	p.trigger()
+
+	// _, err := syscall.Kevent(p.kfd, []syscall.Kevent_t{
+	// 	{Ident: uint64(fd), Flags: syscall.EV_DELETE, Filter: syscall.EVFILT_WRITE},
+	// }, nil, nil)
 	return err
 }
 
@@ -207,6 +232,15 @@ func (p *poller) start() {
 			if err != nil && err != syscall.EINTR {
 				return
 			}
+
+			p.mux.Lock()
+			syscall.Kevent(p.kfd, p.eventList, nil, nil)
+			if err != nil && err != syscall.EINTR {
+				return
+			}
+			p.eventList = p.eventList[0:0]
+			p.mux.Unlock()
+
 			for i := 0; i < n; i++ {
 				fd = int(events[i].Ident)
 				switch fd {
@@ -277,6 +311,7 @@ func newPoller(g *Gopher, isListener bool, index int) (*poller, error) {
 		kfd:        fd,
 		index:      index,
 		isListener: isListener,
+		eventList:  make([]syscall.Kevent_t, 1024),
 	}
 
 	if isListener {
