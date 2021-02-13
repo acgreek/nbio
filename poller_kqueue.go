@@ -216,9 +216,9 @@ func (p *poller) start() {
 	defer syscall.Close(p.kfd)
 	p.shutdown = false
 
-	fd := 0
-	events := make([]syscall.Kevent_t, 1024)
-	changes := []syscall.Kevent_t{}
+	var fd = 0
+	var events = make([]syscall.Kevent_t, 1024)
+	var changes []syscall.Kevent_t = nil
 	if p.isListener {
 		for !p.shutdown {
 			log.Println("----- loop")
@@ -242,23 +242,19 @@ func (p *poller) start() {
 			}
 		}
 	} else {
+
 		for !p.shutdown {
-			log.Println("----- loop")
+			p.mux.Lock()
+			changes = p.eventList
+			p.eventList = nil
+			p.mux.Unlock()
+			log.Println("----- loop 111:", len(changes))
 			n, err := syscall.Kevent(p.kfd, changes, events, nil)
 			if err != nil && err != syscall.EINTR {
 				return
 			}
 
-			log.Println(".......... loop add events 111")
-			p.mux.Lock()
-			if len(p.eventList) > 0 {
-				log.Println(".......... loop add events 222:", len(p.eventList))
-				n2, err2 := syscall.Kevent(p.kfd, p.eventList, nil, nil)
-				log.Println(".......... loop add events 333:", n2, err2)
-				p.eventList = p.eventList[0:0]
-			}
-			p.mux.Unlock()
-			log.Println(".......... loop add events 444")
+			log.Println(".......... loop 222:", n, err)
 
 			for i := 0; i < n; i++ {
 				fd = int(events[i].Ident)
@@ -309,7 +305,6 @@ func newPoller(g *Gopher, isListener bool, index int) (*poller, error) {
 		kfd:        fd,
 		index:      index,
 		isListener: isListener,
-		eventList:  make([]syscall.Kevent_t, 1024),
 	}
 
 	if isListener {
