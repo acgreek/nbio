@@ -86,15 +86,9 @@ func TestEcho(t *testing.T) {
 		}
 		g.AddConn(c)
 		if n%2 == 0 {
-			n, err := c.Write(make([]byte, msgSize))
-			if err != nil {
-				log.Fatalf("Write failed: %v, %v", n, err)
-			}
+			c.Write(make([]byte, msgSize))
 		} else {
-			n, err := c.Writev([][]byte{make([]byte, msgSize)})
-			if err != nil {
-				log.Fatalf("Write failed: %v, %v", n, err)
-			}
+			c.Writev([][]byte{make([]byte, msgSize)})
 		}
 	}
 
@@ -216,10 +210,10 @@ func TestHeapTimer(t *testing.T) {
 	it2 := g.afterFunc(timeout, func() {
 		close(ch2)
 	})
-	it2.Reset(timeout * 2)
+	it2.Reset(timeout * 5)
 	<-ch2
 	to2 := time.Since(t2)
-	if to2 < timeout*2-timeout/5 || to2 > timeout*2+timeout/5 {
+	if to2 < timeout*4 || to2 > timeout*6 {
 		log.Fatalf("invalid to2: %v", to2)
 	}
 
