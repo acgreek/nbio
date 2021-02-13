@@ -91,7 +91,7 @@ func (p *poller) acceptable(fd int) bool {
 	return true
 }
 
-func (p *poller) addConn(c *Conn) error {
+func (p *poller) addConn(c *Conn) {
 	c.g = p.g
 
 	p.g.onOpen(c)
@@ -104,7 +104,7 @@ func (p *poller) addConn(c *Conn) error {
 	// p.increase()
 	// }
 
-	return err
+	// return err
 }
 
 func (p *poller) getConn(fd int) *Conn {
