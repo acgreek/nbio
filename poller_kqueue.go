@@ -96,7 +96,8 @@ func (p *poller) addConn(c *Conn) {
 
 	p.g.onOpen(c)
 
-	p.addRead(c.fd)
+	fd := c.fd
+	p.addRead(fd)
 	p.g.connsLinux[fd] = c
 	p.increase()
 
