@@ -199,17 +199,19 @@ func (p *poller) start() {
 	changes := []syscall.Kevent_t{}
 	if p.isListener {
 		for !p.shutdown {
+			log.Println("----- loop")
+
 			n, err := syscall.Kevent(p.kfd, changes, events, nil)
 			if err != nil && err != syscall.EINTR {
 				return
 			}
-
 			for i := 0; i < n; i++ {
 				fd = int(events[i].Ident)
 				switch fd {
 				case p.evtfd:
 				default:
 					err = p.accept(fd)
+					log.Printf("+++++ accept: %v", err)
 					if err != nil && err != syscall.EAGAIN {
 						return
 					}
@@ -218,6 +220,7 @@ func (p *poller) start() {
 		}
 	} else {
 		for !p.shutdown {
+			log.Println("----- loop")
 			n, err := syscall.Kevent(p.kfd, changes, events, nil)
 			if err != nil && err != syscall.EINTR {
 				return
@@ -228,6 +231,7 @@ func (p *poller) start() {
 				switch fd {
 				case p.evtfd:
 				default:
+					log.Printf("+++++ readWrite: %v", err)
 					p.readWrite(&events[i])
 				}
 			}
