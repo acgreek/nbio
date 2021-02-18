@@ -177,6 +177,7 @@ func (g *Gopher) OnRead(h func(c *Conn, b []byte) ([]byte, error)) {
 	if h == nil {
 		panic("invalid nil handler")
 	}
+	// log.Info("---- set OnRead: %v", h)
 	g.onRead = h
 }
 

@@ -245,7 +245,9 @@ func (p *poller) readWrite(ev *syscall.EpollEvent) {
 		if ev.Events&syscall.EPOLLIN != 0 {
 			buffer := p.g.borrow(c)
 			// n, err := c.Read(buffer)
+			// log.Info("---- Before onRead 111")
 			b, err := p.g.onRead(c, buffer)
+			// log.Info("---- After onRead 222: %v, %v", len(b), err)
 			if err == nil {
 				p.g.onData(c, b)
 			} else {

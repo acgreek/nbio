@@ -1,10 +1,10 @@
 package main
 
 import (
-	"crypto/tls"
 	"log"
 	"strings"
 
+	"github.com/lesismal/lib/crypto/tls"
 	"github.com/lesismal/nbio"
 )
 
@@ -77,10 +77,12 @@ func main() {
 	})
 
 	g.OnOpen(func(c *nbio.Conn) {
-		tlsConn := tls.Server(c, tlsConfig)
+		log.Println("+++ OnOpen")
+		tlsConn := tls.NewConn(c, tlsConfig, false, true, 0)
 		c.SetSession(tlsConn)
 	})
 	g.OnRead(func(c *nbio.Conn, b []byte) ([]byte, error) {
+		log.Println("+++ OnRead")
 		tlsConn := c.Session().(*tls.Conn)
 		n, err := tlsConn.Read(b)
 		log.Println("tlsConn.Read server:", n, err)
