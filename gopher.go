@@ -47,6 +47,9 @@ type Config struct {
 
 	// MaxWriteBufferSize .
 	MaxWriteBufferSize uint32
+
+	// LockThread .
+	LockThread bool
 }
 
 // State of Gopher
@@ -83,6 +86,7 @@ type Gopher struct {
 	pollerNum          uint32
 	readBufferSize     uint32
 	maxWriteBufferSize uint32
+	lockThread         bool
 
 	lfds     []int
 	currLoad int64
@@ -96,6 +100,7 @@ type Gopher struct {
 
 	onOpen     func(c *Conn)
 	onClose    func(c *Conn, err error)
+	onRead     func(c *Conn, b []byte) ([]byte, error)
 	onData     func(c *Conn, data []byte)
 	onMemAlloc func(c *Conn) []byte
 	onMemFree  func(c *Conn, buffer []byte)
@@ -165,6 +170,14 @@ func (g *Gopher) OnClose(h func(c *Conn, err error)) {
 		panic("invalid nil handler")
 	}
 	g.onClose = h
+}
+
+// OnRead registers callback for disconnected
+func (g *Gopher) OnRead(h func(c *Conn, b []byte) ([]byte, error)) {
+	if h == nil {
+		panic("invalid nil handler")
+	}
+	g.onRead = h
 }
 
 // OnData registers callback for data

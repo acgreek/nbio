@@ -4,6 +4,7 @@ package nbio
 
 import (
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -63,13 +64,10 @@ func (p *poller) accept() error {
 func (p *poller) readConn(c *Conn) {
 	for {
 		buffer := p.g.borrow(c)
-		n, err := c.Read(buffer)
+		b, err := p.g.onRead(c, buffer)
 		if err == nil {
-			p.g.onData(c, buffer[:n])
+			p.g.onData(c, b)
 		} else {
-			if c.closeErr == nil {
-				c.closeErr = err
-			}
 			c.Close()
 		}
 		p.g.payback(c, buffer)
@@ -110,6 +108,10 @@ func (p *poller) deleteConn(c *Conn) {
 }
 
 func (p *poller) start() {
+	if p.g.lockThread {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+	}
 	defer p.g.Done()
 
 	log.Debug("Poller[%v_%v_%v] start", p.g.Name, p.pollType, p.index)

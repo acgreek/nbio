@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"fmt"
 )
 
 // Conn implements net.Conn
@@ -44,6 +46,7 @@ func (c *Conn) Hash() int {
 
 // Read implements Read
 func (c *Conn) Read(b []byte) (int, error) {
+	// use lock to prevent multiple conn data confusion when fd is reused on unix
 	c.mux.Lock()
 	if c.closed {
 		c.mux.Unlock()
@@ -52,11 +55,13 @@ func (c *Conn) Read(b []byte) (int, error) {
 	c.mux.Unlock()
 
 	n, err := syscall.Read(int(c.fd), b)
+	fmt.Println("nbio.Conn.Read:", n, len(b), err)
 	return n, err
 }
 
 // Write implements Write
 func (c *Conn) Write(b []byte) (int, error) {
+	// use lock to prevent multiple conn data confusion when fd is reused on unix
 	c.mux.Lock()
 	if c.closed {
 		c.mux.Unlock()
@@ -64,6 +69,7 @@ func (c *Conn) Write(b []byte) (int, error) {
 	}
 
 	n, err := c.write(b)
+	fmt.Println("nbio.Conn.Write:", n, len(b), err)
 	if err != nil && err != syscall.EAGAIN {
 		c.closed = true
 		c.mux.Unlock()
@@ -93,7 +99,6 @@ func (c *Conn) Write(b []byte) (int, error) {
 // Writev implements Writev
 func (c *Conn) Writev(in [][]byte) (int, error) {
 	c.mux.Lock()
-
 	if c.closed {
 		c.mux.Unlock()
 		return 0, errClosed
