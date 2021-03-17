@@ -62,10 +62,6 @@ func (p *Parser) Read(data []byte) error {
 		return nil
 	}
 
-	if p.Upgrader != nil {
-		return p.Upgrader.Read(p, data)
-	}
-
 	var c byte
 	var start = 0
 	var offset = len(p.cache)
@@ -79,7 +75,12 @@ func (p *Parser) Read(data []byte) error {
 		data = p.cache
 		p.cache = nil
 	}
-	for i := offset; i < len(data); i++ {
+
+	if p.Upgrader != nil {
+		return p.Upgrader.Read(p, data)
+	}
+
+	for i := offset; i < len(data) && p.Upgrader == nil; i++ {
 		c = data[i]
 		switch p.state {
 		case stateMethodBefore:
