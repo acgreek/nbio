@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -55,8 +54,8 @@ func main() {
 	ticker := time.NewTicker(time.Second)
 	for i := 1; true; i++ {
 		<-ticker.C
-		n := atomic.SwapUint64(&qps, 0)
-		total += n
-		fmt.Printf("running for %v seconds, online: %v, NumGoroutine: %v, qps: %v, total: %v\n", i, svr.State().Online, runtime.NumGoroutine(), n, total)
+		// n := atomic.SwapUint64(&qps, 0)
+		// total += n
+		// fmt.Printf("running for %v seconds, online: %v, NumGoroutine: %v, qps: %v, total: %v\n", i, svr.State().Online, runtime.NumGoroutine(), n, total)
 	}
 }

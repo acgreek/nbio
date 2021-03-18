@@ -25,6 +25,9 @@ func main() {
 	defer client.Stop()
 
 	req := "hello"
+	for i := 0; i < 1024*65-31; i++ {
+		req += "a"
+	}
 	rsp := ""
 	err = client.Call("/call/echo", &req, &rsp, time.Second*5)
 	if err != nil {

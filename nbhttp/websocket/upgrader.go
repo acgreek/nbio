@@ -39,13 +39,13 @@ type Upgrader struct {
 
 	CheckOrigin func(r *http.Request) bool
 
-	opcode  int
+	opcode  int8
 	buffer  []byte
 	message []byte
 }
 
 func (u *Upgrader) HandleMessage() {
-	fmt.Printf("opcode: %v, message: %v\n", u.opcode, string(u.message))
+	fmt.Printf("+++ HandleMessage, opcode: %v, message: %v\n", u.opcode, len(u.message))
 	mempool.Free(u.message)
 	u.message = nil
 	u.opcode = -1
@@ -53,7 +53,7 @@ func (u *Upgrader) HandleMessage() {
 
 // Read .
 func (u *Upgrader) Read(p *nbhttp.Parser, data []byte) error {
-	fmt.Printf("Upgrader Read: %v\n", string(data))
+	// fmt.Printf("Upgrader Read: %v\n", string(data))
 	l := len(u.buffer)
 	if l > 0 {
 		u.buffer = mempool.Realloc(u.buffer, l+len(data))
@@ -61,12 +61,12 @@ func (u *Upgrader) Read(p *nbhttp.Parser, data []byte) error {
 	} else {
 		u.buffer = data
 	}
-	fmt.Printf("Read, buffer[0]: %b, buffer[1]: %b, buffer[2]: %b, buffer[3]: %b\n", u.buffer[0], u.buffer[1], u.buffer[2], u.buffer[3])
+	fmt.Printf("-------- Read, buffer[0]: %b, buffer[1]: %b, buffer[2]: %b, buffer[3]: %b\n", u.buffer[0], u.buffer[1], u.buffer[2], u.buffer[3])
 	buffer := u.buffer
 	for {
 		opcode, body, ok, fin := u.nextFrame()
-		bl := len(body)
 		if ok {
+			bl := len(body)
 			if bl > 0 {
 				ml := len(u.message)
 				if ml == 0 {
@@ -95,6 +95,9 @@ func (u *Upgrader) Read(p *nbhttp.Parser, data []byte) error {
 
 		if fin {
 			u.HandleMessage()
+			// defer func() {
+			// 	fmt.Println("+++ Read Over:", len(u.message))
+			// }()
 		}
 
 		if len(u.buffer) == 0 {
@@ -136,12 +139,12 @@ func (u *Upgrader) RSV3() bool {
 	return (u.buffer[0] & 0x8) != 0
 }
 
-func (u *Upgrader) nextFrame() (int, []byte, bool, bool) {
+func (u *Upgrader) nextFrame() (int8, []byte, bool, bool) {
 	var (
 		ok     bool   = false
 		fin    bool   = false
 		body   []byte = nil
-		opcode int    = -1
+		opcode int8   = -1
 	)
 	l := int64(len(u.buffer))
 	headLen := int64(2)
@@ -164,22 +167,27 @@ func (u *Upgrader) nextFrame() (int, []byte, bool, bool) {
 			bodyLen = int64(payloadLen)
 		}
 		if bodyLen >= 0 {
-			// mask
-			if (u.buffer[1] & 0x1) != 0 {
+			masked := (u.buffer[1] & 0x80) != 0
+			if masked {
 				headLen += 4
 			}
 			total := headLen + bodyLen
 			if l >= total {
-				mask := u.buffer[headLen-4 : headLen]
 				body = u.buffer[headLen:total]
-				for i := 0; i < len(body); i++ {
-					body[i] ^= mask[i%4]
+				if masked {
+					mask := u.buffer[headLen-4 : headLen]
+					for i := 0; i < len(body); i++ {
+						body[i] ^= mask[i%4]
+					}
+				} else {
+
 				}
-				fmt.Println("body:", string(body))
-				opcode = int(u.buffer[0]>>4) & 0xF
+				opcode = int8(u.buffer[0] & 0xF)
 				ok = true
 				fin = ((u.buffer[0] & 0x80) != 0)
 				u.buffer = u.buffer[total:]
+				// fmt.Println("body:", string(body))
+				// fmt.Println("fin:", fin)
 			}
 		}
 	}
@@ -326,7 +334,7 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 
 // OnClose .
 func (u *Upgrader) OnClose(p *nbhttp.Parser, err error) {
-
+	fmt.Println("onClose:", p.Processor.Conn().RemoteAddr().String())
 }
 
 func NewUpgrader() *Upgrader {
