@@ -3,6 +3,8 @@ package websocket
 import (
 	"crypto/sha1"
 	"encoding/base64"
+	"encoding/binary"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -11,7 +13,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/lesismal/nbio"
+	"github.com/lesismal/nbio/mempool"
 	"github.com/lesismal/nbio/nbhttp"
+)
+
+const (
+	stateMessageHeader = 0
+	stateMessageBody   = 1
 )
 
 // Hijacker .
@@ -21,6 +29,8 @@ type Hijacker interface {
 
 // Upgrader .
 type Upgrader struct {
+	state int
+
 	EnableCompression bool
 
 	HandshakeTimeout time.Duration
@@ -28,6 +38,299 @@ type Upgrader struct {
 	Subprotocols []string
 
 	CheckOrigin func(r *http.Request) bool
+
+	opcode  int
+	buffer  []byte
+	message []byte
+}
+
+func (u *Upgrader) HandleMessage() {
+	fmt.Printf("opcode: %v, message: %v\n", u.opcode, string(u.message))
+	mempool.Free(u.message)
+	u.message = nil
+	u.opcode = -1
+}
+
+// Read .
+func (u *Upgrader) Read(p *nbhttp.Parser, data []byte) error {
+	fmt.Printf("Upgrader Read: %v\n", string(data))
+	l := len(u.buffer)
+	if l > 0 {
+		u.buffer = mempool.Realloc(u.buffer, l+len(data))
+		copy(u.buffer[l:], data)
+	} else {
+		u.buffer = data
+	}
+	fmt.Printf("Read, buffer[0]: %b, buffer[1]: %b, buffer[2]: %b, buffer[3]: %b\n", u.buffer[0], u.buffer[1], u.buffer[2], u.buffer[3])
+	buffer := u.buffer
+	for {
+		opcode, body, ok, fin := u.nextFrame()
+		bl := len(body)
+		if ok {
+			if bl > 0 {
+				ml := len(u.message)
+				if ml == 0 {
+					if bl < 1024 {
+						u.message = mempool.Malloc(1024)[:bl]
+					} else {
+						u.message = mempool.Malloc(bl)
+					}
+				} else {
+					rl := ml + len(body)
+					if rl < 1024 {
+						u.message = mempool.Realloc(u.message, 1024)[:rl]
+					} else {
+						u.message = mempool.Realloc(u.message, rl)
+					}
+				}
+				copy(u.message[ml:], body)
+
+				if u.opcode == -1 {
+					u.opcode = opcode
+				}
+			}
+		} else {
+			break
+		}
+
+		if fin {
+			u.HandleMessage()
+		}
+
+		if len(u.buffer) == 0 {
+			break
+		}
+	}
+
+	l = len(u.buffer)
+	if l != len(buffer) {
+		if l > 0 {
+			var tmp []byte
+			if l < 2048 {
+				tmp = mempool.Malloc(2048)[:l]
+			} else {
+				tmp = mempool.Malloc(l)
+			}
+			copy(tmp, u.buffer)
+			u.buffer = tmp
+		}
+		mempool.Free(buffer)
+	}
+
+	return nil
+}
+
+func (u *Upgrader) Fin() bool {
+	return (u.buffer[0] & 0x1) != 0
+}
+
+func (u *Upgrader) RSV1() bool {
+	return (u.buffer[0] & 0x2) != 0
+}
+
+func (u *Upgrader) RSV2() bool {
+	return (u.buffer[0] & 0x4) != 0
+}
+
+func (u *Upgrader) RSV3() bool {
+	return (u.buffer[0] & 0x8) != 0
+}
+
+func (u *Upgrader) nextFrame() (int, []byte, bool, bool) {
+	var (
+		ok     bool   = false
+		fin    bool   = false
+		body   []byte = nil
+		opcode int    = -1
+	)
+	l := int64(len(u.buffer))
+	headLen := int64(2)
+	if l >= 2 {
+		payloadLen := u.buffer[1] & 0x7F
+		bodyLen := int64(-1)
+
+		switch payloadLen {
+		case 126:
+			if l >= 4 {
+				bodyLen = int64(binary.BigEndian.Uint16(u.buffer[2:4]))
+				headLen = 4
+			}
+		case 127:
+			if len(u.buffer) >= 10 {
+				bodyLen = int64(binary.BigEndian.Uint64(u.buffer[2:10]))
+				headLen = 10
+			}
+		default:
+			bodyLen = int64(payloadLen)
+		}
+		if bodyLen >= 0 {
+			// mask
+			if (u.buffer[1] & 0x1) != 0 {
+				headLen += 4
+			}
+			total := headLen + bodyLen
+			if l >= total {
+				mask := u.buffer[headLen-4 : headLen]
+				body = u.buffer[headLen:total]
+				for i := 0; i < len(body); i++ {
+					body[i] ^= mask[i%4]
+				}
+				fmt.Println("body:", string(body))
+				opcode = int(u.buffer[0]>>4) & 0xF
+				ok = true
+				fin = ((u.buffer[0] & 0x80) != 0)
+				u.buffer = u.buffer[total:]
+			}
+		}
+	}
+
+	return opcode, body, ok, fin
+}
+
+// Upgrade .
+func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeader http.Header) error {
+	const badHandshake = "websocket: the client is not using the websocket protocol: "
+
+	if !headerContains(r.Header, "Connection", "upgrade") {
+		return u.returnError(w, r, http.StatusBadRequest, ErrUpgradeTokenNotFound)
+	}
+
+	if !headerContains(r.Header, "Upgrade", "websocket") {
+		return u.returnError(w, r, http.StatusBadRequest, ErrUpgradeTokenNotFound)
+	}
+
+	if r.Method != "GET" {
+		return u.returnError(w, r, http.StatusMethodNotAllowed, ErrUpgradeMethodIsGet)
+	}
+
+	if !headerContains(r.Header, "Sec-Websocket-Version", "13") {
+		return u.returnError(w, r, http.StatusBadRequest, ErrUpgradeInvalidWebsocketVersion)
+	}
+
+	if _, ok := responseHeader["Sec-Websocket-Extensions"]; ok {
+		return u.returnError(w, r, http.StatusInternalServerError, ErrUpgradeUnsupportedExtensions)
+	}
+
+	checkOrigin := u.CheckOrigin
+	if checkOrigin == nil {
+		checkOrigin = checkSameOrigin
+	}
+	if !checkOrigin(r) {
+		return u.returnError(w, r, http.StatusForbidden, ErrUpgradeOriginNotAllowed)
+	}
+
+	challengeKey := r.Header.Get("Sec-Websocket-Key")
+	if challengeKey == "" {
+		return u.returnError(w, r, http.StatusBadRequest, ErrUpgradeMissingWebsocketKey)
+	}
+
+	subprotocol := u.selectSubprotocol(r, responseHeader)
+
+	// Negotiate PMCE
+	var compress bool
+	if u.EnableCompression {
+		for _, ext := range parseExtensions(r.Header) {
+			if ext[""] != "permessage-deflate" {
+				continue
+			}
+			compress = true
+			break
+		}
+	}
+
+	h, ok := w.(nbhttp.Hijacker)
+	if !ok {
+		return u.returnError(w, r, http.StatusInternalServerError, ErrUpgradeNotHijacker)
+	}
+	conn, err := h.Hijack()
+	if err != nil {
+		return u.returnError(w, r, http.StatusInternalServerError, err)
+	}
+
+	nbc, ok := conn.(*nbio.Conn)
+	if !ok {
+		return u.returnError(w, r, http.StatusInternalServerError, err)
+	}
+	parser, ok := nbc.Session().(*nbhttp.Parser)
+	if !ok {
+		return u.returnError(w, r, http.StatusInternalServerError, err)
+	}
+
+	parser.Upgrader = u
+
+	wsConn := newConn(conn, compress, subprotocol)
+
+	w.WriteHeader(http.StatusSwitchingProtocols)
+	w.Header().Add("Upgrade", "websocket")
+	w.Header().Add("Connection", "Upgrade")
+	w.Header().Add("Sec-WebSocket-Accept", string(computeAcceptKey(challengeKey)))
+	if subprotocol != "" {
+		w.Header().Add("Sec-WebSocket-Protocol", subprotocol)
+	}
+	if compress {
+		w.Header().Add("Sec-WebSocket-Extensions", "permessage-deflate; server_no_context_takeover; client_no_context_takeover")
+	}
+	for k, vv := range responseHeader {
+		if k != "Sec-Websocket-Protocol" {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
+		}
+	}
+
+	// var p []byte
+	// p = append(p, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "...)
+	// p = append(p, computeAcceptKey(challengeKey)...)
+	// p = append(p, "\r\n"...)
+	// if subprotocol != "" {
+	// 	p = append(p, "Sec-WebSocket-Protocol: "...)
+	// 	p = append(p, subprotocol...)
+	// 	p = append(p, "\r\n"...)
+	// }
+	// if compress {
+	// 	p = append(p, "Sec-WebSocket-Extensions: permessage-deflate; server_no_context_takeover; client_no_context_takeover\r\n"...)
+	// }
+	// for k, vs := range responseHeader {
+	// 	if k == "Sec-Websocket-Protocol" {
+	// 		continue
+	// 	}
+	// 	for _, v := range vs {
+	// 		p = append(p, k...)
+	// 		p = append(p, ": "...)
+	// 		for i := 0; i < len(v); i++ {
+	// 			b := v[i]
+	// 			if b <= 31 {
+	// 				// prevent response splitting.
+	// 				b = ' '
+	// 			}
+	// 			p = append(p, b)
+	// 		}
+	// 		p = append(p, "\r\n"...)
+	// 	}
+	// }
+	// p = append(p, "\r\n"...)
+	if u.HandshakeTimeout > 0 {
+		wsConn.SetWriteDeadline(time.Now().Add(u.HandshakeTimeout))
+	}
+	// ps := string(p)
+	// p = []byte(ps)
+	// fmt.Println("ps:")
+	// fmt.Println(ps)
+	// if _, err = wsConn.Write(p); err != nil {
+	// 	wsConn.Close()
+	// 	return err
+	// }
+
+	return nil
+}
+
+// OnClose .
+func (u *Upgrader) OnClose(p *nbhttp.Parser, err error) {
+
+}
+
+func NewUpgrader() *Upgrader {
+	return &Upgrader{opcode: -1}
 }
 
 func (u *Upgrader) returnError(w http.ResponseWriter, r *http.Request, status int, err error) error {
@@ -62,6 +365,60 @@ func (u *Upgrader) selectSubprotocol(r *http.Request, responseHeader http.Header
 		return responseHeader.Get("Sec-Websocket-Protocol")
 	}
 	return ""
+}
+
+var keyGUID = []byte("258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+
+func computeAcceptKey(challengeKey string) string {
+	h := sha1.New()
+	h.Write([]byte(challengeKey))
+	h.Write(keyGUID)
+	return base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
+// checkSameOrigin returns true if the origin is not set or is equal to the request host.
+func checkSameOrigin(r *http.Request) bool {
+	origin := r.Header["Origin"]
+	if len(origin) == 0 {
+		return true
+	}
+	u, err := url.Parse(origin[0])
+	if err != nil {
+		return false
+	}
+	return equalASCIIFold(u.Host, r.Host)
+}
+
+func headerContains(header http.Header, name string, value string) bool {
+	value = strings.ToLower(value)
+	for _, v := range header[name] {
+		if strings.ToLower(v) == value {
+			return true
+		}
+	}
+	return false
+}
+
+func equalASCIIFold(s, t string) bool {
+	for s != "" && t != "" {
+		sr, size := utf8.DecodeRuneInString(s)
+		s = s[size:]
+		tr, size := utf8.DecodeRuneInString(t)
+		t = t[size:]
+		if sr == tr {
+			continue
+		}
+		if 'A' <= sr && sr <= 'Z' {
+			sr = sr + 'a' - 'A'
+		}
+		if 'A' <= tr && tr <= 'Z' {
+			tr = tr + 'a' - 'A'
+		}
+		if sr != tr {
+			return false
+		}
+	}
+	return s == t
 }
 
 func nextToken(s string) (token, rest string) {
@@ -162,189 +519,6 @@ func nextTokenOrQuoted(s string) (value string, rest string) {
 		}
 	}
 	return "", ""
-}
-
-// Upgrade .
-func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeader http.Header) error {
-	const badHandshake = "websocket: the client is not using the websocket protocol: "
-
-	if !headerContains(r.Header, "Connection", "upgrade") {
-		return u.returnError(w, r, http.StatusBadRequest, ErrUpgradeTokenNotFound)
-	}
-
-	if !headerContains(r.Header, "Upgrade", "websocket") {
-		return u.returnError(w, r, http.StatusBadRequest, ErrUpgradeTokenNotFound)
-	}
-
-	if r.Method != "GET" {
-		return u.returnError(w, r, http.StatusMethodNotAllowed, ErrUpgradeMethodIsGet)
-	}
-
-	if !headerContains(r.Header, "Sec-Websocket-Version", "13") {
-		return u.returnError(w, r, http.StatusBadRequest, ErrUpgradeInvalidWebsocketVersion)
-	}
-
-	if _, ok := responseHeader["Sec-Websocket-Extensions"]; ok {
-		return u.returnError(w, r, http.StatusInternalServerError, ErrUpgradeUnsupportedExtensions)
-	}
-
-	checkOrigin := u.CheckOrigin
-	if checkOrigin == nil {
-		checkOrigin = checkSameOrigin
-	}
-	if !checkOrigin(r) {
-		return u.returnError(w, r, http.StatusForbidden, ErrUpgradeOriginNotAllowed)
-	}
-
-	challengeKey := r.Header.Get("Sec-Websocket-Key")
-	if challengeKey == "" {
-		return u.returnError(w, r, http.StatusBadRequest, ErrUpgradeMissingWebsocketKey)
-	}
-
-	subprotocol := u.selectSubprotocol(r, responseHeader)
-
-	// Negotiate PMCE
-	var compress bool
-	if u.EnableCompression {
-		for _, ext := range parseExtensions(r.Header) {
-			if ext[""] != "permessage-deflate" {
-				continue
-			}
-			compress = true
-			break
-		}
-	}
-
-	h, ok := w.(nbhttp.Hijacker)
-	if !ok {
-		return u.returnError(w, r, http.StatusInternalServerError, ErrUpgradeNotHijacker)
-	}
-	conn, err := h.Hijack()
-	if err != nil {
-		return u.returnError(w, r, http.StatusInternalServerError, err)
-	}
-
-	nbc, ok := conn.(*nbio.Conn)
-	if !ok {
-		return u.returnError(w, r, http.StatusInternalServerError, err)
-	}
-	parser, ok := nbc.Session().(*nbhttp.Parser)
-	if !ok {
-		return u.returnError(w, r, http.StatusInternalServerError, err)
-	}
-
-	parser.Upgrader = u
-
-	wsConn := newConn(conn, compress, subprotocol)
-
-	var p []byte
-	p = append(p, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "...)
-	p = append(p, computeAcceptKey(challengeKey)...)
-	p = append(p, "\r\n"...)
-	if wsConn.subprotocol != "" {
-		p = append(p, "Sec-WebSocket-Protocol: "...)
-		p = append(p, wsConn.subprotocol...)
-		p = append(p, "\r\n"...)
-	}
-	if compress {
-		p = append(p, "Sec-WebSocket-Extensions: permessage-deflate; server_no_context_takeover; client_no_context_takeover\r\n"...)
-	}
-	for k, vs := range responseHeader {
-		if k == "Sec-Websocket-Protocol" {
-			continue
-		}
-		for _, v := range vs {
-			p = append(p, k...)
-			p = append(p, ": "...)
-			for i := 0; i < len(v); i++ {
-				b := v[i]
-				if b <= 31 {
-					// prevent response splitting.
-					b = ' '
-				}
-				p = append(p, b)
-			}
-			p = append(p, "\r\n"...)
-		}
-	}
-	p = append(p, "\r\n"...)
-
-	if u.HandshakeTimeout > 0 {
-		wsConn.SetWriteDeadline(time.Now().Add(u.HandshakeTimeout))
-	}
-	if _, err = wsConn.Write(p); err != nil {
-		wsConn.Close()
-		return err
-	}
-
-	return nil
-}
-
-var keyGUID = []byte("258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
-
-func computeAcceptKey(challengeKey string) string {
-	h := sha1.New()
-	h.Write([]byte(challengeKey))
-	h.Write(keyGUID)
-	return base64.StdEncoding.EncodeToString(h.Sum(nil))
-}
-
-// checkSameOrigin returns true if the origin is not set or is equal to the request host.
-func checkSameOrigin(r *http.Request) bool {
-	origin := r.Header["Origin"]
-	if len(origin) == 0 {
-		return true
-	}
-	u, err := url.Parse(origin[0])
-	if err != nil {
-		return false
-	}
-	return equalASCIIFold(u.Host, r.Host)
-}
-
-func headerContains(header http.Header, name string, value string) bool {
-	for _, v := range header[name] {
-		if v == value {
-			return true
-		}
-	}
-	return false
-}
-
-func equalASCIIFold(s, t string) bool {
-	for s != "" && t != "" {
-		sr, size := utf8.DecodeRuneInString(s)
-		s = s[size:]
-		tr, size := utf8.DecodeRuneInString(t)
-		t = t[size:]
-		if sr == tr {
-			continue
-		}
-		if 'A' <= sr && sr <= 'Z' {
-			sr = sr + 'a' - 'A'
-		}
-		if 'A' <= tr && tr <= 'Z' {
-			tr = tr + 'a' - 'A'
-		}
-		if sr != tr {
-			return false
-		}
-	}
-	return s == t
-}
-
-// Read .
-func (u *Upgrader) Read(p *nbhttp.Parser, data []byte) error {
-	return nil
-}
-
-// OnClose .
-func (u *Upgrader) OnClose(p *nbhttp.Parser, err error) {
-
-}
-
-func NewUpgrader() *Upgrader {
-	return &Upgrader{}
 }
 
 // Token octets per RFC 2616.
