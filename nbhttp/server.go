@@ -28,11 +28,11 @@ var (
 	// DefaultHTTPWriteBufferSize .
 	DefaultHTTPWriteBufferSize = 1024 * 2
 
-	// DefaultExecutorMessageHandlerPoolSize .
-	DefaultExecutorMessageHandlerPoolSize = runtime.NumCPU() * 64
+	// DefaultMessageHandlerPoolSize .
+	DefaultMessageHandlerPoolSize = runtime.NumCPU() * 256
 
-	// DefaultExecutorMessageHandlerTaskIdleTime .
-	DefaultExecutorMessageHandlerTaskIdleTime = time.Second * 60
+	// DefaultMessageHandlerTaskIdleTime .
+	DefaultMessageHandlerTaskIdleTime = time.Second * 60
 
 	// DefaultKeepaliveTime .
 	DefaultKeepaliveTime = time.Second * 120
@@ -81,7 +81,7 @@ type Config struct {
 	// LockThread represents poller's goroutine to lock thread or not, it's set to false by default.
 	LockThread bool
 
-	// MessageHandlerPoolSize represents max http server's task pool goroutine num, it's set to runtime.NumCPU() * 64 by default.
+	// MessageHandlerPoolSize represents max http server's task pool goroutine num, it's set to runtime.NumCPU() * 256 by default.
 	MessageHandlerPoolSize int
 
 	// MessageHandlerTaskIdleTime represents idle time for task pool's goroutine, it's set to 60s by default.
@@ -158,10 +158,10 @@ func NewServer(conf Config, handler http.Handler, parserExecutor func(index int,
 	}
 	if messageHandlerExecutor == nil {
 		if conf.MessageHandlerPoolSize <= 0 {
-			conf.MessageHandlerPoolSize = conf.NParser * 32
+			conf.MessageHandlerPoolSize = DefaultMessageHandlerPoolSize
 		}
 		if conf.MessageHandlerTaskIdleTime <= 0 {
-			conf.MessageHandlerTaskIdleTime = DefaultExecutorMessageHandlerTaskIdleTime
+			conf.MessageHandlerTaskIdleTime = DefaultMessageHandlerTaskIdleTime
 		}
 		messageHandlerExecutePool = taskpool.New(conf.MessageHandlerPoolSize, conf.MessageHandlerTaskIdleTime)
 		messageHandlerExecutor = messageHandlerExecutePool.Go

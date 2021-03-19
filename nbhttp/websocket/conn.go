@@ -29,7 +29,6 @@ type Conn struct {
 	mux sync.Mutex
 
 	subprotocol string
-	readLimit   int64
 
 	pingHandler    func(appData string)
 	pongHandler    func(appData string)
@@ -37,10 +36,6 @@ type Conn struct {
 	closeHandler   func(code int, text string)
 
 	onClose func(c *Conn, err error)
-}
-
-func (c *Conn) SetReadLimit(limit int64) {
-	c.readLimit = limit
 }
 
 func (c *Conn) handleMessage(opcode int8, data []byte) {
