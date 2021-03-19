@@ -1,38 +1,56 @@
 package main
 
 import (
+	"flag"
 	"log"
-	"net"
+	"net/url"
+	"os"
+	"os/signal"
 	"time"
 
-	"github.com/lesismal/arpc"
-	"github.com/lesismal/arpc/extension/protocol/websocket"
+	"github.com/gorilla/websocket"
 )
 
+var addr = flag.String("addr", "localhost:28000", "http service address")
+
 func main() {
-	arpc.DefaultHandler.Handle("/server/notify", func(ctx *arpc.Context) {
-		str := ""
-		err := ctx.Bind(&str)
-		log.Printf("/server/notify: \"%v\", error: %v", str, err)
-	})
+	flag.Parse()
 
-	client, err := arpc.NewClient(func() (net.Conn, error) {
-		return websocket.Dial("ws://localhost:28000/ws")
-	})
-	if err != nil {
-		panic(err)
-	}
-	defer client.Stop()
+	u := url.URL{Scheme: "ws", Host: *addr, Path: "/ws"}
+	log.Printf("connecting to %s", u.String())
 
-	req := "hello"
-	for i := 0; i < 1024*65-31; i++ {
-		req += "a"
-	}
-	rsp := ""
-	err = client.Call("/call/echo", &req, &rsp, time.Second*5)
+	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
-		log.Fatalf("Call failed: %v", err)
-	} else {
-		log.Printf("Call Response: \"%v\"", rsp)
+		log.Fatal("dial:", err)
 	}
+	defer c.Close()
+
+	go func() {
+		text := "hello world"
+		for {
+			err := c.WriteMessage(websocket.TextMessage, []byte(text))
+			if err != nil {
+				log.Fatalf("write: %v", err)
+				return
+			}
+			log.Println("write:", text)
+
+			_, message, err := c.ReadMessage()
+			if err != nil {
+				log.Println("read:", err)
+				return
+			}
+			if string(message) != text {
+				log.Fatalf("message != text: %v, %v", len(message), string(message))
+			} else {
+				log.Println("read :", string(message))
+			}
+			time.Sleep(time.Second)
+		}
+	}()
+
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt)
+	<-interrupt
+	log.Println("interrupt")
 }

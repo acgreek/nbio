@@ -60,7 +60,7 @@ func (u *Upgrader) Read(p *nbhttp.Parser, data []byte) error {
 	} else {
 		u.buffer = data
 	}
-	fmt.Printf("-------- Read, buffer[0]: %b, buffer[1]: %b, buffer[2]: %b, buffer[3]: %b\n", u.buffer[0], u.buffer[1], u.buffer[2], u.buffer[3])
+	// fmt.Printf("-------- Read, buffer[0]: %b, buffer[1]: %b, buffer[2]: %b, buffer[3]: %b\n", u.buffer[0], u.buffer[1], u.buffer[2], u.buffer[3])
 	buffer := u.buffer
 	for {
 		opcode, body, ok, fin := u.nextFrame()

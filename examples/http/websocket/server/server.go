@@ -32,7 +32,12 @@ func onWebsocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("on ws conn:", conn.RemoteAddr().String())
+	wsConn := conn.(*websocket.Conn)
+	wsConn.SetMessageHandler(func(messageType int8, data []byte) {
+		fmt.Println("+++ onMessage:", messageType, string(data))
+		wsConn.WriteMessage(messageType, data)
+	})
+	fmt.Println("on ws conn:", wsConn.RemoteAddr().String())
 }
 
 func main() {

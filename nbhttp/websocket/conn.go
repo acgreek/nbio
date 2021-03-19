@@ -1,7 +1,6 @@
 package websocket
 
 import (
-	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -35,9 +34,10 @@ type Conn struct {
 	subprotocol string
 	readLimit   int64
 
-	pingHandler  func(appData string) error
-	pongHandler  func(appData string) error
-	closeHandler func(code int, text string) error
+	pingHandler    func(appData string)
+	pongHandler    func(appData string)
+	messageHandler func(messageType int8, data []byte)
+	closeHandler   func(code int, text string)
 }
 
 func (c *Conn) SetReadLimit(limit int64) {
@@ -46,42 +46,46 @@ func (c *Conn) SetReadLimit(limit int64) {
 
 func (c *Conn) handleMessage(opcode int8, data []byte) {
 	switch opcode {
-	case TextMessage:
-
-	case BinaryMessage:
-
+	case TextMessage, BinaryMessage:
+		c.messageHandler(opcode, data)
 	case CloseMessage:
 		if len(data) >= 2 {
 			code := int(binary.BigEndian.Uint16(data[:2]))
 			c.closeHandler(code, string(data[2:]))
+		} else {
+			c.WriteMessage(CloseMessage, nil)
 		}
-	case PingMessage: //表示ping
-
-	case PongMessage: //表示pong
-
+	case PingMessage:
+		c.pingHandler(string(data))
+	case PongMessage:
+		c.pongHandler(string(data))
 	default:
 	}
 	fmt.Printf("+++ HandleMessage, opcode: %v, message: %v\n", opcode, len(data))
-
 }
 
-func (c *Conn) SetCloseHandler(h func(code int, text string) error) {
+func (c *Conn) SetCloseHandler(h func(code int, text string)) {
 	if h != nil {
 		c.closeHandler = h
 	}
 }
 
-func (c *Conn) SetPingHandler(h func(appData string) error) {
+func (c *Conn) SetPingHandler(h func(appData string)) {
 	if h != nil {
 		c.pingHandler = h
 	}
 }
 
-func (c *Conn) SetPongHandler(h func(appData string) error) {
+func (c *Conn) SetPongHandler(h func(appData string)) {
 	if h != nil {
 		c.pongHandler = h
 	}
+}
 
+func (c *Conn) SetMessageHandler(h func(messageType int8, data []byte)) {
+	if h != nil {
+		c.messageHandler = h
+	}
 }
 
 // func (c *Conn) EnableWriteCompression(enable bool) {
@@ -100,43 +104,42 @@ func (c *Conn) writeMessage(messageType int8, fin bool, data []byte) error {
 	var (
 		buf     []byte
 		bodyLen = len(data)
-		offset  = 0
+		offset  = 2
 	)
 	if bodyLen < 126 {
-		buf = mempool.Malloc(len(data) + 6)
-		buf[1] |= byte(bodyLen)
-		offset = 6
+		buf = mempool.Malloc(len(data) + 2)
+		buf[1] = byte(bodyLen)
+		// offset = 2
 	} else if bodyLen < 65535 {
-		buf = mempool.Malloc(len(data) + 8)
-		buf[1] |= 126
+		buf = mempool.Malloc(len(data) + 4)
+		buf[1] = 126
 		binary.BigEndian.PutUint16(buf[2:4], uint16(bodyLen))
-		offset = 8
+		offset = 4
 	} else {
-		buf = mempool.Malloc(len(data) + 14)
-		buf[1] |= 127
+		buf = mempool.Malloc(len(data) + 10)
+		buf[1] = 127
 		binary.BigEndian.PutUint64(buf[2:10], uint64(bodyLen))
-		offset = 14
+		offset = 10
 	}
 	copy(buf[offset:], data)
+
+	// opcode
+	buf[0] = byte(messageType)
 
 	// fin
 	if fin {
 		buf[0] |= byte(0x80)
 	}
 
-	// opcode
-	buf[0] |= byte(messageType)
-
 	// mask
-	buf[1] |= byte(0x8)
-	mask := buf[offset : offset+4]
-	rand.Read(mask)
-
-	// body
-	for i := 0; i < bodyLen; i++ {
-		buf[offset+i] = (data[i] ^ mask[i%4])
-	}
-
+	// buf[1] |= byte(0x80)
+	// rand.Read(buf[offset : offset+4])
+	// mask := buf[offset : offset+4]
+	// // body
+	// for i := 0; i < bodyLen; i++ {
+	// 	buf[offset+i] = (data[i] ^ mask[i%4])
+	// }
+	fmt.Printf("--- WriteMessage buf[0]: %b, buf[1]: %b\n", buf[0], buf[1])
 	_, err := c.Conn.Write(buf)
 	return err
 }
@@ -178,22 +181,22 @@ func newConn(c net.Conn, compress bool, subprotocol string) *Conn {
 	conn := &Conn{
 		Conn: c,
 		// compress:    compress,
-		subprotocol: subprotocol,
-		pongHandler: func(string) error { return nil },
+		subprotocol:    subprotocol,
+		pongHandler:    func(string) {},
+		messageHandler: func(int8, []byte) {},
 	}
-	conn.pingHandler = func(message string) error {
-		return conn.WriteMessage(PongMessage, nil)
+	conn.pingHandler = func(message string) {
+		conn.WriteMessage(PongMessage, nil)
 	}
-	conn.closeHandler = func(code int, text string) error {
+	conn.closeHandler = func(code int, text string) {
 		if len(text)+2 > maxControlFramePayloadSize {
-			return ErrInvalidControlFrame
+			return //ErrInvalidControlFrame
 		}
 		buf := mempool.Malloc(len(text) + 2)
 		binary.BigEndian.PutUint16(buf[:2], uint16(code))
 		copy(buf[2:], text)
-		err := conn.WriteMessage(CloseMessage, buf)
+		conn.WriteMessage(CloseMessage, buf)
 		mempool.Free(buf)
-		return err
 	}
 	return conn
 }
