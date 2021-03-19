@@ -123,7 +123,7 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 // Read .
 func (u *Upgrader) Read(p *nbhttp.Parser, data []byte) error {
 	l := len(u.buffer)
-	if u.ReadLimit > 0 && int64(l+len(data)) > u.ReadLimit || int64(l+len(u.message)) > u.ReadLimit {
+	if u.ReadLimit > 0 && (int64(l+len(data)) > u.ReadLimit || int64(l+len(u.message)) > u.ReadLimit) {
 		return nbhttp.ErrTooLong
 	}
 
