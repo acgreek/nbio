@@ -9,7 +9,9 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/lesismal/llib/std/crypto/tls"
 	"github.com/lesismal/nbio"
+	ntls "github.com/lesismal/nbio/extension/tls"
 	"github.com/lesismal/nbio/loging"
 	"github.com/lesismal/nbio/mempool"
 	"github.com/lesismal/nbio/taskpool"
@@ -238,5 +240,41 @@ func NewServer(conf Config, handler http.Handler, parserExecutor func(index int,
 			messageHandlerExecutePool.Stop()
 		}
 	})
+	return svr
+}
+
+func NewServerTLS(conf Config, handler http.Handler, parserExecutor func(index int, f func()), messageHandlerExecutor func(f func()), tlsConfig *tls.Config) *Server {
+	svr := NewServer(conf, handler, parserExecutor, messageHandlerExecutor)
+	isClient := false
+	svr.OnOpen(ntls.WrapOpen(tlsConfig, isClient, 0, func(c *nbio.Conn, tlsConn *tls.Conn) {
+		svr._onOpen(c)
+		processor := NewServerProcessor(c, handler, messageHandlerExecutor, conf.MinBufferSize, conf.KeepaliveTime)
+		parser := NewParser(processor, false, conf.ReadLimit, conf.MinBufferSize)
+		c.SetSession(parser)
+	}))
+	svr.OnClose(ntls.WrapClose(func(c *nbio.Conn, tlsConn *tls.Conn, err error) {
+		parser := c.Session().(*Parser)
+		if parser == nil {
+			loging.Error("nil parser")
+			return
+		}
+		parser.onClose(err)
+		svr._onClose(c, err)
+	}))
+	svr.OnData(ntls.WrapData(func(c *nbio.Conn, tlsConn *tls.Conn, data []byte) {
+		parser := c.Session().(*Parser)
+		if parser == nil {
+			loging.Error("nil parser")
+			c.Close()
+			return
+		}
+		parserExecutor(c.Hash(), func() {
+			err := parser.Read(data)
+			if err != nil {
+				loging.Error("parser.Read failed: %v", err)
+				c.Close()
+			}
+		})
+	}))
 	return svr
 }
