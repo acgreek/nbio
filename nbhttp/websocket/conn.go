@@ -2,9 +2,9 @@ package websocket
 
 import (
 	"encoding/binary"
-	"net"
 	"sync"
 
+	"github.com/lesismal/nbio"
 	"github.com/lesismal/nbio/mempool"
 )
 
@@ -24,7 +24,7 @@ const (
 )
 
 type Conn struct {
-	net.Conn
+	*nbio.Conn
 
 	mux sync.Mutex
 
@@ -36,7 +36,7 @@ type Conn struct {
 	messageHandler func(messageType int8, data []byte)
 	closeHandler   func(code int, text string)
 
-	onClose func(c net.Conn, err error)
+	onClose func(c *Conn, err error)
 }
 
 func (c *Conn) SetReadLimit(limit int64) {
@@ -86,7 +86,7 @@ func (c *Conn) OnMessage(h func(messageType int8, data []byte)) {
 	}
 }
 
-func (c *Conn) OnClose(h func(c net.Conn, err error)) {
+func (c *Conn) OnClose(h func(c *Conn, err error)) {
 	if h != nil {
 		c.onClose = h
 	}
@@ -159,13 +159,13 @@ func (c *Conn) Write(data []byte) (int, error) {
 	return -1, ErrInvalidWriteCalling
 }
 
-func newConn(c net.Conn, compress bool, subprotocol string) *Conn {
+func newConn(c *nbio.Conn, compress bool, subprotocol string) *Conn {
 	conn := &Conn{
 		Conn:           c,
 		subprotocol:    subprotocol,
 		pongHandler:    func(string) {},
 		messageHandler: func(int8, []byte) {},
-		onClose:        func(net.Conn, error) {},
+		onClose:        func(*Conn, error) {},
 	}
 	conn.pingHandler = func(message string) {
 		conn.WriteMessage(PongMessage, nil)
