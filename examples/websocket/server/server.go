@@ -42,7 +42,7 @@ func main() {
 
 	svr = nbhttp.NewServer(nbhttp.Config{
 		Network: "tcp",
-		Addrs:   []string{"localhost:28001"},
+		Addrs:   []string{"localhost:28000"},
 	}, mux, nil, nil)
 
 	err := svr.Start()
