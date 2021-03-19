@@ -18,4 +18,8 @@ var (
 	ErrUpgradeMissingWebsocketKey = errors.New("websocket: not a websocket handshake: 'Sec-WebSocket-Key' header is missing or blank")
 
 	ErrUpgradeNotHijacker = errors.New("websocket: response does not implement http.Hijacker")
+
+	ErrInvalidControlFrame = errors.New("websocket: invalid control frame")
+
+	ErrInvalidWriteCalling = errors.New("websocket: invalid write calling, should call WriteMessage instead")
 )

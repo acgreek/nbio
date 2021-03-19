@@ -29,7 +29,7 @@ type Hijacker interface {
 
 // Upgrader .
 type Upgrader struct {
-	state int
+	conn *Conn
 
 	EnableCompression bool
 
@@ -44,8 +44,8 @@ type Upgrader struct {
 	message []byte
 }
 
-func (u *Upgrader) HandleMessage() {
-	fmt.Printf("+++ HandleMessage, opcode: %v, message: %v\n", u.opcode, len(u.message))
+func (u *Upgrader) handleMessage() {
+	u.conn.handleMessage(u.opcode, u.message)
 	mempool.Free(u.message)
 	u.message = nil
 	u.opcode = -1
@@ -53,7 +53,6 @@ func (u *Upgrader) HandleMessage() {
 
 // Read .
 func (u *Upgrader) Read(p *nbhttp.Parser, data []byte) error {
-	// fmt.Printf("Upgrader Read: %v\n", string(data))
 	l := len(u.buffer)
 	if l > 0 {
 		u.buffer = mempool.Realloc(u.buffer, l+len(data))
@@ -94,7 +93,7 @@ func (u *Upgrader) Read(p *nbhttp.Parser, data []byte) error {
 		}
 
 		if fin {
-			u.HandleMessage()
+			u.handleMessage()
 			// defer func() {
 			// 	fmt.Println("+++ Read Over:", len(u.message))
 			// }()
@@ -196,27 +195,27 @@ func (u *Upgrader) nextFrame() (int8, []byte, bool, bool) {
 }
 
 // Upgrade .
-func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeader http.Header) error {
+func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeader http.Header) (net.Conn, error) {
 	const badHandshake = "websocket: the client is not using the websocket protocol: "
 
 	if !headerContains(r.Header, "Connection", "upgrade") {
-		return u.returnError(w, r, http.StatusBadRequest, ErrUpgradeTokenNotFound)
+		return nil, u.returnError(w, r, http.StatusBadRequest, ErrUpgradeTokenNotFound)
 	}
 
 	if !headerContains(r.Header, "Upgrade", "websocket") {
-		return u.returnError(w, r, http.StatusBadRequest, ErrUpgradeTokenNotFound)
+		return nil, u.returnError(w, r, http.StatusBadRequest, ErrUpgradeTokenNotFound)
 	}
 
 	if r.Method != "GET" {
-		return u.returnError(w, r, http.StatusMethodNotAllowed, ErrUpgradeMethodIsGet)
+		return nil, u.returnError(w, r, http.StatusMethodNotAllowed, ErrUpgradeMethodIsGet)
 	}
 
 	if !headerContains(r.Header, "Sec-Websocket-Version", "13") {
-		return u.returnError(w, r, http.StatusBadRequest, ErrUpgradeInvalidWebsocketVersion)
+		return nil, u.returnError(w, r, http.StatusBadRequest, ErrUpgradeInvalidWebsocketVersion)
 	}
 
 	if _, ok := responseHeader["Sec-Websocket-Extensions"]; ok {
-		return u.returnError(w, r, http.StatusInternalServerError, ErrUpgradeUnsupportedExtensions)
+		return nil, u.returnError(w, r, http.StatusInternalServerError, ErrUpgradeUnsupportedExtensions)
 	}
 
 	checkOrigin := u.CheckOrigin
@@ -224,49 +223,47 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 		checkOrigin = checkSameOrigin
 	}
 	if !checkOrigin(r) {
-		return u.returnError(w, r, http.StatusForbidden, ErrUpgradeOriginNotAllowed)
+		return nil, u.returnError(w, r, http.StatusForbidden, ErrUpgradeOriginNotAllowed)
 	}
 
 	challengeKey := r.Header.Get("Sec-Websocket-Key")
 	if challengeKey == "" {
-		return u.returnError(w, r, http.StatusBadRequest, ErrUpgradeMissingWebsocketKey)
+		return nil, u.returnError(w, r, http.StatusBadRequest, ErrUpgradeMissingWebsocketKey)
 	}
 
 	subprotocol := u.selectSubprotocol(r, responseHeader)
 
 	// Negotiate PMCE
-	var compress bool
-	if u.EnableCompression {
-		for _, ext := range parseExtensions(r.Header) {
-			if ext[""] != "permessage-deflate" {
-				continue
-			}
-			compress = true
-			break
-		}
-	}
+	// var compress bool
+	// if u.EnableCompression {
+	// 	for _, ext := range parseExtensions(r.Header) {
+	// 		if ext[""] != "permessage-deflate" {
+	// 			continue
+	// 		}
+	// 		compress = true
+	// 		break
+	// 	}
+	// }
 
 	h, ok := w.(nbhttp.Hijacker)
 	if !ok {
-		return u.returnError(w, r, http.StatusInternalServerError, ErrUpgradeNotHijacker)
+		return nil, u.returnError(w, r, http.StatusInternalServerError, ErrUpgradeNotHijacker)
 	}
 	conn, err := h.Hijack()
 	if err != nil {
-		return u.returnError(w, r, http.StatusInternalServerError, err)
+		return nil, u.returnError(w, r, http.StatusInternalServerError, err)
 	}
 
 	nbc, ok := conn.(*nbio.Conn)
 	if !ok {
-		return u.returnError(w, r, http.StatusInternalServerError, err)
+		return nil, u.returnError(w, r, http.StatusInternalServerError, err)
 	}
 	parser, ok := nbc.Session().(*nbhttp.Parser)
 	if !ok {
-		return u.returnError(w, r, http.StatusInternalServerError, err)
+		return nil, u.returnError(w, r, http.StatusInternalServerError, err)
 	}
 
 	parser.Upgrader = u
-
-	wsConn := newConn(conn, compress, subprotocol)
 
 	w.WriteHeader(http.StatusSwitchingProtocols)
 	w.Header().Add("Upgrade", "websocket")
@@ -275,9 +272,9 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 	if subprotocol != "" {
 		w.Header().Add("Sec-WebSocket-Protocol", subprotocol)
 	}
-	if compress {
-		w.Header().Add("Sec-WebSocket-Extensions", "permessage-deflate; server_no_context_takeover; client_no_context_takeover")
-	}
+	// if compress {
+	// 	w.Header().Add("Sec-WebSocket-Extensions", "permessage-deflate; server_no_context_takeover; client_no_context_takeover")
+	// }
 	for k, vv := range responseHeader {
 		if k != "Sec-Websocket-Protocol" {
 			for _, v := range vv {
@@ -286,50 +283,13 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 		}
 	}
 
-	// var p []byte
-	// p = append(p, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "...)
-	// p = append(p, computeAcceptKey(challengeKey)...)
-	// p = append(p, "\r\n"...)
-	// if subprotocol != "" {
-	// 	p = append(p, "Sec-WebSocket-Protocol: "...)
-	// 	p = append(p, subprotocol...)
-	// 	p = append(p, "\r\n"...)
-	// }
-	// if compress {
-	// 	p = append(p, "Sec-WebSocket-Extensions: permessage-deflate; server_no_context_takeover; client_no_context_takeover\r\n"...)
-	// }
-	// for k, vs := range responseHeader {
-	// 	if k == "Sec-Websocket-Protocol" {
-	// 		continue
-	// 	}
-	// 	for _, v := range vs {
-	// 		p = append(p, k...)
-	// 		p = append(p, ": "...)
-	// 		for i := 0; i < len(v); i++ {
-	// 			b := v[i]
-	// 			if b <= 31 {
-	// 				// prevent response splitting.
-	// 				b = ' '
-	// 			}
-	// 			p = append(p, b)
-	// 		}
-	// 		p = append(p, "\r\n"...)
-	// 	}
-	// }
-	// p = append(p, "\r\n"...)
 	if u.HandshakeTimeout > 0 {
-		wsConn.SetWriteDeadline(time.Now().Add(u.HandshakeTimeout))
+		conn.SetWriteDeadline(time.Now().Add(u.HandshakeTimeout))
 	}
-	// ps := string(p)
-	// p = []byte(ps)
-	// fmt.Println("ps:")
-	// fmt.Println(ps)
-	// if _, err = wsConn.Write(p); err != nil {
-	// 	wsConn.Close()
-	// 	return err
-	// }
 
-	return nil
+	// u.conn = newConn(conn, compress, subprotocol)
+	u.conn = newConn(conn, false, subprotocol)
+	return u.conn, nil
 }
 
 // OnClose .
@@ -338,7 +298,9 @@ func (u *Upgrader) OnClose(p *nbhttp.Parser, err error) {
 }
 
 func NewUpgrader() *Upgrader {
-	return &Upgrader{opcode: -1}
+	return &Upgrader{
+		opcode: -1,
+	}
 }
 
 func (u *Upgrader) returnError(w http.ResponseWriter, r *http.Request, status int, err error) error {

@@ -28,10 +28,11 @@ func onEcho(w http.ResponseWriter, r *http.Request) {
 
 func onWebsocket(w http.ResponseWriter, r *http.Request) {
 	upgrader := websocket.NewUpgrader()
-	err := upgrader.Upgrade(w, r, nil)
+	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println("on ws conn:", conn.RemoteAddr().String())
 }
 
 func main() {
