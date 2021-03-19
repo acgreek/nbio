@@ -2,7 +2,6 @@ package websocket
 
 import (
 	"encoding/binary"
-	"fmt"
 	"net"
 	"sync"
 
@@ -29,8 +28,6 @@ type Conn struct {
 
 	mux sync.Mutex
 
-	// compress         bool
-	// compressionLevel int
 	subprotocol string
 	readLimit   int64
 
@@ -38,6 +35,8 @@ type Conn struct {
 	pongHandler    func(appData string)
 	messageHandler func(messageType int8, data []byte)
 	closeHandler   func(code int, text string)
+
+	onClose func(c net.Conn, err error)
 }
 
 func (c *Conn) SetReadLimit(limit int64) {
@@ -61,7 +60,6 @@ func (c *Conn) handleMessage(opcode int8, data []byte) {
 		c.pongHandler(string(data))
 	default:
 	}
-	fmt.Printf("+++ HandleMessage, opcode: %v, message: %v\n", opcode, len(data))
 }
 
 func (c *Conn) SetCloseHandler(h func(code int, text string)) {
@@ -82,66 +80,16 @@ func (c *Conn) SetPongHandler(h func(appData string)) {
 	}
 }
 
-func (c *Conn) SetMessageHandler(h func(messageType int8, data []byte)) {
+func (c *Conn) OnMessage(h func(messageType int8, data []byte)) {
 	if h != nil {
 		c.messageHandler = h
 	}
 }
 
-// func (c *Conn) EnableWriteCompression(enable bool) {
-// 	c.compress = enable
-// }
-
-// func (c *Conn) SetCompressionLevel(level int) error {
-// 	if !isValidCompressionLevel(level) {
-// 		return errors.New("websocket: invalid compression level")
-// 	}
-// 	c.compressionLevel = level
-// 	return nil
-// }
-
-func (c *Conn) writeMessage(messageType int8, fin bool, data []byte) error {
-	var (
-		buf     []byte
-		bodyLen = len(data)
-		offset  = 2
-	)
-	if bodyLen < 126 {
-		buf = mempool.Malloc(len(data) + 2)
-		buf[1] = byte(bodyLen)
-		// offset = 2
-	} else if bodyLen < 65535 {
-		buf = mempool.Malloc(len(data) + 4)
-		buf[1] = 126
-		binary.BigEndian.PutUint16(buf[2:4], uint16(bodyLen))
-		offset = 4
-	} else {
-		buf = mempool.Malloc(len(data) + 10)
-		buf[1] = 127
-		binary.BigEndian.PutUint64(buf[2:10], uint64(bodyLen))
-		offset = 10
+func (c *Conn) OnClose(h func(c net.Conn, err error)) {
+	if h != nil {
+		c.onClose = h
 	}
-	copy(buf[offset:], data)
-
-	// opcode
-	buf[0] = byte(messageType)
-
-	// fin
-	if fin {
-		buf[0] |= byte(0x80)
-	}
-
-	// mask
-	// buf[1] |= byte(0x80)
-	// rand.Read(buf[offset : offset+4])
-	// mask := buf[offset : offset+4]
-	// // body
-	// for i := 0; i < bodyLen; i++ {
-	// 	buf[offset+i] = (data[i] ^ mask[i%4])
-	// }
-	fmt.Printf("--- WriteMessage buf[0]: %b, buf[1]: %b\n", buf[0], buf[1])
-	_, err := c.Conn.Write(buf)
-	return err
 }
 
 func (c *Conn) WriteMessage(messageType int8, data []byte) error {
@@ -173,17 +121,51 @@ func (c *Conn) WriteMessage(messageType int8, data []byte) error {
 	return nil
 }
 
+func (c *Conn) writeMessage(messageType int8, fin bool, data []byte) error {
+	var (
+		buf     []byte
+		bodyLen = len(data)
+		offset  = 2
+	)
+	if bodyLen < 126 {
+		buf = mempool.Malloc(len(data) + 2)
+		buf[1] = byte(bodyLen)
+	} else if bodyLen < 65535 {
+		buf = mempool.Malloc(len(data) + 4)
+		buf[1] = 126
+		binary.BigEndian.PutUint16(buf[2:4], uint16(bodyLen))
+		offset = 4
+	} else {
+		buf = mempool.Malloc(len(data) + 10)
+		buf[1] = 127
+		binary.BigEndian.PutUint64(buf[2:10], uint64(bodyLen))
+		offset = 10
+	}
+	copy(buf[offset:], data)
+
+	// opcode
+	buf[0] = byte(messageType)
+
+	// fin
+	if fin {
+		buf[0] |= byte(0x80)
+	}
+
+	_, err := c.Conn.Write(buf)
+	return err
+}
+
 func (c *Conn) Write(data []byte) (int, error) {
 	return -1, ErrInvalidWriteCalling
 }
 
 func newConn(c net.Conn, compress bool, subprotocol string) *Conn {
 	conn := &Conn{
-		Conn: c,
-		// compress:    compress,
+		Conn:           c,
 		subprotocol:    subprotocol,
 		pongHandler:    func(string) {},
 		messageHandler: func(int8, []byte) {},
+		onClose:        func(net.Conn, error) {},
 	}
 	conn.pingHandler = func(message string) {
 		conn.WriteMessage(PongMessage, nil)

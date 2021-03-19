@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -33,11 +34,14 @@ func onWebsocket(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 	wsConn := conn.(*websocket.Conn)
-	wsConn.SetMessageHandler(func(messageType int8, data []byte) {
-		fmt.Println("+++ onMessage:", messageType, string(data))
+	wsConn.OnMessage(func(messageType int8, data []byte) {
+		fmt.Println("+++ OnMessage:", messageType, string(data))
 		wsConn.WriteMessage(messageType, data)
 	})
-	fmt.Println("on ws conn:", wsConn.RemoteAddr().String())
+	wsConn.OnClose(func(c net.Conn, err error) {
+		fmt.Println("--- OnClose:", c.RemoteAddr().String(), err)
+	})
+	fmt.Println("+++ OnOpen:", wsConn.RemoteAddr().String())
 }
 
 func main() {

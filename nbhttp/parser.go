@@ -52,7 +52,7 @@ func (p *Parser) nextState(state int8) {
 
 func (p *Parser) onClose(err error) {
 	if p.Upgrader != nil {
-		p.Upgrader.OnClose(p, err)
+		p.Upgrader.Close(p, err)
 	}
 }
 
