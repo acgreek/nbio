@@ -232,7 +232,7 @@ func (p *ServerProcessor) OnComplete(parser *Parser) {
 	// http 2.0
 	if request.Method == "PRI" && len(request.Header) == 0 && request.URL.Path == "*" && request.Proto == "HTTP/2.0" {
 		p.isUpgrade = true
-		p.parser.Upgrader = &Http2Upgrader{}
+		p.parser.Upgrader = NewHttp2Upgrader(p.conn)
 		return
 	}
 

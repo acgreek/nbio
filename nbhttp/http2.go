@@ -19,6 +19,19 @@ const (
 	H2HeaderLen = 9
 )
 
+const (
+	FrameTypeData         = 0x0
+	FrameTypeHeaders      = 0x1
+	FrameTypePriority     = 0x2
+	FrameTypeRstStream    = 0x3
+	FrameTypeSettings     = 0x4
+	FrameTypePushPromise  = 0x5
+	FrameTypePing         = 0x6
+	FrameTypeGoaway       = 0x7
+	FrameTypeWindowUpdate = 0x8
+	FrameTypeContinuation = 0x9
+)
+
 // Http2Upgrader .
 type Http2Upgrader struct {
 	conn net.Conn
@@ -79,15 +92,16 @@ func (u *Http2Upgrader) Read(p *Parser, data []byte) error {
 					return ErrInvalidH2HeaderR
 				}
 				streamID &= 0x7FFFFFFF
-				buffer = buffer[H2HeaderLen:]
 
 				var body []byte
-				if len(buffer) >= int(payloadLen) {
+				if len(buffer) >= int(payloadLen)+int(H2HeaderLen) {
+					buffer = buffer[H2HeaderLen:]
 					body = buffer[:payloadLen]
 					buffer = buffer[payloadLen:]
+					fmt.Printf("h2 header recved, payloadLen: %v, type: %v, flags: %v, streamID: %v, r: %v, body: %v\n", payloadLen, typ, flags, streamID, r, body)
+				} else {
+					break
 				}
-
-				fmt.Printf("h2 header recved, payloadLen: %v, type: %v, flags: %v, streamID: %v, r: %v, body: %v\n", payloadLen, typ, flags, streamID, r, body)
 			} else {
 				break
 			}
@@ -116,5 +130,11 @@ func (u *Http2Upgrader) Read(p *Parser, data []byte) error {
 
 // Close .
 func (u *Http2Upgrader) Close(p *Parser, err error) {
+	if u.conn != nil {
+		u.conn.Close()
+	}
+}
 
+func NewHttp2Upgrader(c net.Conn) *Http2Upgrader {
+	return &Http2Upgrader{conn: c}
 }
