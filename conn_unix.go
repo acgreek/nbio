@@ -143,12 +143,6 @@ func (c *Conn) Writev(in [][]byte) (int, error) {
 
 // Close implements Close
 func (c *Conn) Close() error {
-	if c.wTimer != nil {
-		c.wTimer.Stop()
-	}
-	if c.rTimer != nil {
-		c.rTimer.Stop()
-	}
 	return c.closeWithError(nil)
 }
 
@@ -181,9 +175,11 @@ func (c *Conn) SetDeadline(t time.Time) error {
 		} else {
 			if c.rTimer != nil {
 				c.rTimer.Stop()
+				c.rTimer = nil
 			}
 			if c.wTimer != nil {
 				c.wTimer.Stop()
+				c.wTimer = nil
 			}
 		}
 	}
@@ -204,6 +200,7 @@ func (c *Conn) SetReadDeadline(t time.Time) error {
 			}
 		} else if c.rTimer != nil {
 			c.rTimer.Stop()
+			c.rTimer = nil
 		}
 	}
 	c.mux.Unlock()
@@ -223,6 +220,7 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 			}
 		} else if c.wTimer != nil {
 			c.wTimer.Stop()
+			c.wTimer = nil
 		}
 	}
 	c.mux.Unlock()
@@ -438,6 +436,14 @@ func (c *Conn) closeWithError(err error) error {
 	if !c.closed {
 		c.closed = true
 		c.mux.Unlock()
+		if c.wTimer != nil {
+			c.wTimer.Stop()
+			c.wTimer = nil
+		}
+		if c.rTimer != nil {
+			c.rTimer.Stop()
+			c.rTimer = nil
+		}
 		return c.closeWithErrorWithoutLock(err)
 	}
 	c.mux.Unlock()
