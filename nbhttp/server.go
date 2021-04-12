@@ -64,7 +64,7 @@ type Config struct {
 	NPoller int
 
 	// NParser represents parser goroutine num, it's set to NPoller by default.
-	NParser int
+	// NParser int
 
 	// ReadLimit represents the max size for parser reading, it's set to 64M by default.
 	ReadLimit int
@@ -138,11 +138,11 @@ func NewServer(conf Config, handler http.Handler, messageHandlerExecutor func(f 
 		conf.ReadBufferSize = DefaultHTTPReadBufferSize
 	}
 	if conf.NPoller <= 0 {
-		conf.NPoller = runtime.NumCPU()
+		conf.NPoller = runtime.NumCPU() * 2
 	}
-	if conf.NParser <= 0 {
-		conf.NParser = conf.NPoller
-	}
+	// if conf.NParser <= 0 {
+	// 	conf.NParser = conf.NPoller
+	// }
 	if conf.ReadLimit <= 0 {
 		conf.ReadLimit = DefaultHTTPReadLimit
 	}
@@ -178,11 +178,10 @@ func NewServer(conf Config, handler http.Handler, messageHandlerExecutor func(f 
 	}
 
 	gopherConf := nbio.Config{
-		Name:    conf.Name,
-		Network: conf.Network,
-		Addrs:   conf.Addrs,
-		MaxLoad: conf.MaxLoad,
-		// NListener:          conf.NListener,
+		Name:               conf.Name,
+		Network:            conf.Network,
+		Addrs:              conf.Addrs,
+		MaxLoad:            conf.MaxLoad,
 		NPoller:            conf.NPoller,
 		ReadBufferSize:     conf.ReadBufferSize,
 		MaxWriteBufferSize: conf.MaxWriteBufferSize,
@@ -230,14 +229,6 @@ func NewServer(conf Config, handler http.Handler, messageHandlerExecutor func(f 
 		})
 	})
 
-	// g.OnReadBufferAlloc(func(c *nbio.Conn) []byte {
-	// 	return mempool.Malloc(int(conf.ReadBufferSize))
-	// })
-	// g.OnReadBufferFree(func(c *nbio.Conn, buffer []byte) {})
-	g.OnWriteBufferRelease(func(c *nbio.Conn, buffer []byte) {
-		mempool.Free(buffer)
-	})
-
 	g.OnStop(func() {
 		svr._onStop()
 		messageHandlerExecutor = func(f func()) {}
@@ -246,6 +237,7 @@ func NewServer(conf Config, handler http.Handler, messageHandlerExecutor func(f 
 			messageHandlerExecutePool.Stop()
 		}
 	})
+
 	return svr
 }
 
@@ -255,11 +247,11 @@ func NewServerTLS(conf Config, handler http.Handler, messageHandlerExecutor func
 		conf.ReadBufferSize = DefaultHTTPReadBufferSize
 	}
 	if conf.NPoller <= 0 {
-		conf.NPoller = runtime.NumCPU()
+		conf.NPoller = runtime.NumCPU() * 2
 	}
-	if conf.NParser <= 0 {
-		conf.NParser = conf.NPoller
-	}
+	// if conf.NParser <= 0 {
+	// 	conf.NParser = conf.NPoller
+	// }
 	if conf.ReadLimit <= 0 {
 		conf.ReadLimit = DefaultHTTPReadLimit
 	}
@@ -310,11 +302,10 @@ func NewServerTLS(conf Config, handler http.Handler, messageHandlerExecutor func
 	}
 
 	gopherConf := nbio.Config{
-		Name:    conf.Name,
-		Network: conf.Network,
-		Addrs:   conf.Addrs,
-		MaxLoad: conf.MaxLoad,
-		// NListener:          conf.NListener,
+		Name:               conf.Name,
+		Network:            conf.Network,
+		Addrs:              conf.Addrs,
+		MaxLoad:            conf.MaxLoad,
 		NPoller:            conf.NPoller,
 		ReadBufferSize:     conf.ReadBufferSize,
 		MaxWriteBufferSize: conf.MaxWriteBufferSize,
@@ -381,13 +372,6 @@ func NewServerTLS(conf Config, handler http.Handler, messageHandlerExecutor func
 			})
 		}
 	})
-	// g.OnReadBufferAlloc(func(c *nbio.Conn) []byte {
-	// 	return mempool.Malloc(int(conf.ReadBufferSize))
-	// })
-	// g.OnReadBufferFree(func(c *nbio.Conn, buffer []byte) {})
-	g.OnWriteBufferRelease(func(c *nbio.Conn, buffer []byte) {
-		mempool.Free(buffer)
-	})
 
 	g.OnStop(func() {
 		svr._onStop()
@@ -397,5 +381,6 @@ func NewServerTLS(conf Config, handler http.Handler, messageHandlerExecutor func
 			messageHandlerExecutePool.Stop()
 		}
 	})
+
 	return svr
 }

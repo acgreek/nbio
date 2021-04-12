@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/lesismal/nbio/loging"
-	"github.com/lesismal/nbio/mempool"
 )
 
 var (
@@ -58,6 +57,7 @@ type Processor interface {
 	OnTrailerHeader(key, value string)
 	OnComplete(parser *Parser)
 	HandleExecute(executor func(f func()))
+	// WriteResponse(w http.ResponseWriter)
 	Clear()
 }
 
@@ -125,10 +125,10 @@ func (p *ServerProcessor) OnStatus(code int, status string) {
 
 // OnHeader .
 func (p *ServerProcessor) OnHeader(key, value string) {
-	values := p.request.Header[key]
-	values = append(values, value)
-	p.request.Header[key] = values
-	p.isUpgrade = (key == "Connection" && value == "upgrade")
+	p.request.Header.Add(key, value)
+	if key == "Connection" && value == "upgrade" {
+		p.isUpgrade = true
+	}
 }
 
 // OnHeader .
@@ -170,21 +170,9 @@ func (p *ServerProcessor) OnContentLength(contentLength int) {
 // OnBody .
 func (p *ServerProcessor) OnBody(data []byte, needRelease bool) {
 	if p.request.Body == nil {
-		if !needRelease {
-			l := len(data)
-			if l < p.minBufferSize {
-				l = p.minBufferSize
-			}
-			b := mempool.Malloc(l)[:len(data)]
-			copy(b, data)
-			data = b
-		}
 		p.request.Body = NewBodyReader(data)
 	} else {
 		p.request.Body.(*BodyReader).Append(data)
-		if needRelease {
-			mempool.Free(data)
-		}
 	}
 }
 
@@ -255,7 +243,7 @@ func (p *ServerProcessor) OnComplete(parser *Parser) {
 				f := func() {
 					for {
 						p.handler.ServeHTTP(res, res.request)
-						p.writeResponse(res)
+						p.WriteResponse(res)
 
 						p.mux.Lock()
 						p.resQueue = p.resQueue[1:]
@@ -273,12 +261,12 @@ func (p *ServerProcessor) OnComplete(parser *Parser) {
 		} else {
 			p.executor(func() {
 				p.handler.ServeHTTP(res, request)
-				p.writeResponse(res)
+				p.WriteResponse(res)
 			})
 		}
 	} else {
 		p.handler.ServeHTTP(res, request)
-		p.writeResponse(res)
+		p.WriteResponse(res)
 	}
 }
 
@@ -289,7 +277,7 @@ func (p *ServerProcessor) HandleExecute(executor func(f func())) {
 	}
 }
 
-func (p *ServerProcessor) writeResponse(res *Response) {
+func (p *ServerProcessor) WriteResponse(res *Response) {
 	if !p.outOfOrderExecution {
 		p.writeResponseInOrder(res)
 	} else {
@@ -469,7 +457,6 @@ func (p *ClientProcessor) OnBody(data []byte, needRelease bool) {
 		p.response.Body = NewBodyReader(data)
 	} else {
 		p.response.Body.(*BodyReader).Append(data)
-		mempool.Free(data)
 	}
 }
 

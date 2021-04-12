@@ -10,8 +10,6 @@ import (
 	"net/textproto"
 	"strconv"
 	"strings"
-
-	"github.com/lesismal/nbio/mempool"
 )
 
 // Parser .
@@ -40,8 +38,6 @@ type Parser struct {
 	readLimit     int
 	minBufferSize int
 
-	// session interface{}
-
 	Processor Processor
 
 	Upgrader Upgrader
@@ -60,9 +56,6 @@ func (p *Parser) onClose(err error) {
 	if p.Upgrader != nil {
 		p.Upgrader.Close(p, err)
 	}
-	if p.cache != nil {
-		mempool.Free(p.cache)
-	}
 }
 
 // Read .
@@ -78,24 +71,14 @@ func (p *Parser) Read(data []byte) error {
 		if offset+len(data) > p.readLimit {
 			return ErrTooLong
 		}
-		p.cache = mempool.Realloc(p.cache, offset+len(data))
-		copy(p.cache[offset:], data)
+		p.cache = append(p.cache, data...)
 		data = p.cache
 		p.cache = nil
-		defer func() {
-			if data != nil {
-				mempool.Free(data)
-			}
-		}()
 	}
 
 UPGRADER:
 	if p.Upgrader != nil {
-		udata := data
-		if start > 0 {
-			udata = mempool.Malloc(len(data) - start)
-			copy(udata, data[start:])
-		}
+		udata := data[start:]
 		return p.Upgrader.Read(p, udata)
 	}
 
@@ -324,9 +307,12 @@ UPGRADER:
 				switch p.headerKey {
 				case "Transfer-Encoding", "Trailer", "Content-Length":
 					if p.header == nil {
-						p.header = http.Header{}
+						p.header = http.Header{p.headerKey: []string{p.headerValue}}
+					} else {
+						// hs := p.header[p.headerKey]
+						// p.header[p.headerKey] = append(hs, p.headerValue)
+						p.header.Add(p.headerKey, p.headerValue)
 					}
-					p.header.Add(p.headerKey, p.headerValue)
 				default:
 				}
 
@@ -354,9 +340,12 @@ UPGRADER:
 				switch p.headerKey {
 				case "Transfer-Encoding", "Trailer", "Content-Length":
 					if p.header == nil {
-						p.header = http.Header{}
+						p.header = http.Header{p.headerKey: []string{p.headerValue}}
+					} else {
+						// hs := p.header[p.headerKey]
+						// p.header[p.headerKey] = append(hs, p.headerValue)
+						p.header.Add(p.headerKey, p.headerValue)
 					}
-					p.header.Add(p.headerKey, p.headerValue)
 				default:
 				}
 
@@ -392,8 +381,7 @@ UPGRADER:
 			left := len(data) - start
 			if left == cl {
 				var body []byte
-				body = mempool.Malloc(cl)
-				copy(body, data[start:start+cl])
+				body = data[start : start+cl]
 				p.Processor.OnBody(body, true)
 				p.handleMessage()
 				return nil
@@ -402,8 +390,7 @@ UPGRADER:
 				if left < p.minBufferSize {
 					left = p.minBufferSize
 				}
-				body := mempool.Malloc(left)[:cl]
-				copy(body, data[start:start+cl])
+				body := data[start : start+cl]
 				p.Processor.OnBody(body, true)
 				p.handleMessage()
 				start += cl
@@ -411,11 +398,9 @@ UPGRADER:
 			} else {
 				if start == 0 {
 					p.cache = data
-					data = nil
 					return nil
 				}
-				p.cache = mempool.Malloc(cl)[:left]
-				copy(p.cache, data[start:])
+				p.cache = data[start:]
 				return nil
 			}
 		case stateBodyChunkSizeBefore:
@@ -487,8 +472,7 @@ UPGRADER:
 				if cl < p.minBufferSize {
 					left = p.minBufferSize
 				}
-				body := mempool.Malloc(left)[:cl]
-				copy(body, data[start:start+cl])
+				body := data[start : start+cl]
 				p.Processor.OnBody(body, true)
 				start += cl
 				i = start - 1
@@ -504,15 +488,9 @@ UPGRADER:
 			} else {
 				if start == 0 {
 					p.cache = data
-					data = nil
 					return nil
 				}
-				if left < p.minBufferSize {
-					p.cache = mempool.Malloc(p.minBufferSize)[:left]
-				} else {
-					p.cache = mempool.Malloc(left)
-				}
-				copy(p.cache, data[start:])
+				p.cache = data[start:]
 				return nil
 			}
 		case stateBodyChunkDataCR:
@@ -632,31 +610,10 @@ UPGRADER:
 
 	left := len(data) - start
 	if left > 0 {
-		if start == 0 && offset > 0 {
-			p.cache = data
-			data = nil
-		} else {
-			if left < p.minBufferSize {
-				p.cache = mempool.Malloc(p.minBufferSize)[:left]
-			} else {
-				p.cache = mempool.Malloc(left)
-			}
-			copy(p.cache, data[start:])
-		}
+		p.cache = data[start:]
 	}
-
 	return nil
 }
-
-// Session returns user session
-// func (p *Parser) Session() interface{} {
-// 	return p.session
-// }
-
-// SetSession sets user session
-// func (p *Parser) SetSession(session interface{}) {
-// 	p.session = session
-// }
 
 func (p *Parser) parseTransferEncoding() error {
 	raw, present := p.header["Transfer-Encoding"]

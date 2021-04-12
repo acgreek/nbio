@@ -7,8 +7,6 @@ package nbhttp
 import (
 	"io"
 	"sync"
-
-	"github.com/lesismal/nbio/mempool"
 )
 
 var (
@@ -37,9 +35,6 @@ func (br *BodyReader) Read(p []byte) (int, error) {
 	if available >= need {
 		copy(p, br.buffer[br.index:br.index+need])
 		br.index += need
-		// if available == need {
-		// 	br.Close()
-		// }
 		return need, nil
 	}
 	copy(p[:available], br.buffer[br.index:])
@@ -50,8 +45,7 @@ func (br *BodyReader) Read(p []byte) (int, error) {
 // Append .
 func (br *BodyReader) Append(b []byte) {
 	if len(b) > 0 {
-		br.buffer = mempool.Realloc(br.buffer, len(br.buffer)+len(b))
-		copy(br.buffer[len(br.buffer)-len(b):], b)
+		br.buffer = append(br.buffer, b...)
 	}
 }
 
@@ -79,7 +73,6 @@ func (br *BodyReader) Close() error {
 
 func (br *BodyReader) close() error {
 	if br.buffer != nil {
-		mempool.Free(br.buffer)
 		br.buffer = nil
 		br.index = 0
 	}
